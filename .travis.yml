@@ -4,6 +4,7 @@ go:
   - 1.12
 
 script:
+  - go get -t -v ./...
   - go build
   - go test -coverprofile c.out
   - go test -v -cover -race -coverprofile=coverage.txt -covermode=atomic
