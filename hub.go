@@ -171,6 +171,7 @@ func Event(topicName topic, args ...interface{}) {
 
 // Reset instance
 func Reset() MessageHub {
+	Get().Destroy()
 	instance = nil
 	return Get()
 }
