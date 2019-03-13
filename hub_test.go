@@ -2,6 +2,7 @@ package hub
 
 import (
 	"errors"
+	. "github.com/efureev/appmod"
 	"sync"
 	"testing"
 )
@@ -97,7 +98,7 @@ func TestHub(t *testing.T) {
 		Convey("Config", func() {
 			So(h.Config(), ShouldHaveSameTypeAs, Config{})
 			So(h.Config().Name(), ShouldEqual, `Hub`)
-			So(h.Config().Version(), ShouldEqual, `v0.0.1`)
+			So(h.Config().Version(), ShouldEqual, `v1.0.0`)
 		})
 
 		Convey("Unsubscribe", func() {

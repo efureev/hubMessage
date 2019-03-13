@@ -3,12 +3,13 @@ package hub
 import (
 	"context"
 	"fmt"
+	. "github.com/efureev/appmod"
 	"reflect"
 	"sync"
 )
 
-// MessageBus implements publish/subscribe messaging paradigm
-type MessageHub interface {
+// messageHub implements publish/subscribe messaging paradigm
+type messageHub interface {
 	AppModule
 
 	Publish(topicName topic, args ...interface{})
@@ -24,7 +25,7 @@ type hub struct {
 	channels ChannelsMap
 }
 
-var instance MessageHub
+var instance messageHub
 
 type topic string
 type ChannelsMap map[topic][]*handler
@@ -37,7 +38,6 @@ type handler struct {
 }
 
 // Publish publishes arguments to the given topic subscribers
-// Publish block only when the buffer of one of the subscribers is full.
 func (h *hub) Publish(topicName topic, args ...interface{}) {
 	rArgs := buildHandlerArgs(args)
 
@@ -131,8 +131,6 @@ func (h *hub) Destroy() error {
 		h.Close(t)
 	}
 
-	println(len(h.channels))
-
 	return nil
 }
 
@@ -146,15 +144,15 @@ func buildHandlerArgs(args []interface{}) []reflect.Value {
 	return reflectedArgs
 }
 
-func Get() MessageHub {
+func Get() messageHub {
 	if instance == nil {
 		instance = New()
 	}
 	return instance
 }
 
-func New() MessageHub {
+func New() messageHub {
 	h := &hub{channels: make(ChannelsMap)}
-	h.SetConfig(Config{name: `Hub`, version: `v0.0.1`})
+	h.SetConfig(NewConfig(`Hub`, `v1.0.0`))
 	return h
 }
