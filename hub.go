@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/efureev/appmod"
+	"log"
 	"reflect"
 	"sync"
 )
@@ -157,4 +158,16 @@ func New() MessageHub {
 	h := &hub{channels: make(channelsMap)}
 	h.SetConfig(appmod.NewConfig(`Hub`, `v1.0.0`))
 	return h
+}
+
+// Sub subscribe listeners
+func Sub(topicName topic, fn interface{}) {
+	if err := Get().Subscribe(topicName, fn); err != nil {
+		log.Println(err)
+	}
+}
+
+// Send dispatch event
+func Send(topicName topic, args ...interface{}) {
+	Get().Publish(topicName, args ...)
 }
