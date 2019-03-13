@@ -3,10 +3,10 @@ package hub
 import (
 	"errors"
 	. "github.com/efureev/appmod"
+	"github.com/smartystreets/goconvey/convey"
 	"sync"
 	"testing"
 )
-import . "github.com/smartystreets/goconvey/convey"
 
 func TestNew(t *testing.T) {
 	h := New()
@@ -87,21 +87,41 @@ func TestHandleError(t *testing.T) {
 	}
 }
 
+func TestGlobalFunc(t *testing.T) {
+	out := make(chan string)
+	defer close(out)
+
+	Sub(`console`, func(m string) {
+		out <- m
+	})
+
+	Event(`console`, `test`)
+
+	if <-out == `` {
+		t.Fail()
+	}
+
+	if err := Sub(`console`, 1); err == nil {
+		t.Fail()
+	}
+
+}
+
 func TestHub(t *testing.T) {
-	Convey("Hub", t, func() {
-		h := Get()
+	convey.Convey("Hub", t, func() {
+		h := Reset()
 
-		Convey("Base", func() {
-			So(h, ShouldHaveSameTypeAs, &hub{})
+		convey.Convey("Base", func() {
+			convey.So(h, convey.ShouldHaveSameTypeAs, &hub{})
 		})
 
-		Convey("Config", func() {
-			So(h.Config(), ShouldHaveSameTypeAs, Config{})
-			So(h.Config().Name(), ShouldEqual, `Hub`)
-			So(h.Config().Version(), ShouldEqual, `v1.0.0`)
+		convey.Convey("Config", func() {
+			convey.So(h.Config(), convey.ShouldHaveSameTypeAs, Config{})
+			convey.So(h.Config().Name(), convey.ShouldEqual, `Hub`)
+			convey.So(h.Config().Version(), convey.ShouldEqual, `v1.0.0`)
 		})
 
-		Convey("Unsubscribe", func() {
+		convey.Convey("Unsubscribe", func() {
 			handler := func() {}
 
 			if h.Subscribe("test", handler) != nil {
@@ -109,17 +129,17 @@ func TestHub(t *testing.T) {
 			}
 
 			err := h.Unsubscribe("test", handler)
-			So(err, ShouldBeNil)
+			convey.So(err, convey.ShouldBeNil)
 
 			err = h.Unsubscribe("test", handler)
-			So(err, ShouldBeNil)
+			convey.So(err, convey.ShouldBeNil)
 
 			err = h.Unsubscribe("unexisted", handler)
-			So(err, ShouldBeError)
+			convey.So(err, convey.ShouldBeError)
 
 		})
 
-		Convey("Close", func() {
+		convey.Convey("Close", func() {
 			handler := func() {}
 
 			if h.Subscribe("test", handler) != nil {
@@ -128,23 +148,23 @@ func TestHub(t *testing.T) {
 
 			original, ok := h.(*hub)
 
-			Convey("Cast message bus to its original type", func() {
-				So(ok, ShouldBeTrue)
+			convey.Convey("Cast message bus to its original type", func() {
+				convey.So(ok, convey.ShouldBeTrue)
 			})
 
-			Convey("Subscribed handler to topic", func() {
-				So(len(original.channels), ShouldEqual, 1)
+			convey.Convey("Subscribed handler to topic", func() {
+				convey.So(len(original.channels), convey.ShouldEqual, 1)
 			})
 
 			h.Close("test")
 
-			Convey("Unsubscribed handlers from topic", func() {
-				So(len(original.channels), ShouldBeZeroValue)
+			convey.Convey("Unsubscribed handlers from topic", func() {
+				convey.So(len(original.channels), convey.ShouldBeZeroValue)
 			})
 
 		})
 
-		Convey("Destroy", func() {
+		convey.Convey("Destroy", func() {
 			handler := func() {}
 
 			if h.Subscribe("test", handler) != nil {
@@ -159,9 +179,9 @@ func TestHub(t *testing.T) {
 				t.Fail()
 			}
 
-			So(h.Destroy(), ShouldBeNil)
+			convey.So(h.Destroy(), convey.ShouldBeNil)
 			original := h.(*hub)
-			So(len(original.channels), ShouldBeZeroValue)
+			convey.So(len(original.channels), convey.ShouldBeZeroValue)
 
 		})
 

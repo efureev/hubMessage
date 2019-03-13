@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/efureev/appmod"
-	"log"
 	"reflect"
 	"sync"
 )
@@ -161,13 +160,17 @@ func New() MessageHub {
 }
 
 // Sub subscribe listeners
-func Sub(topicName topic, fn interface{}) {
-	if err := Get().Subscribe(topicName, fn); err != nil {
-		log.Println(err)
-	}
+func Sub(topicName topic, fn interface{}) error {
+	return Get().Subscribe(topicName, fn)
 }
 
-// Send dispatch event
-func Send(topicName topic, args ...interface{}) {
+// Event dispatch event
+func Event(topicName topic, args ...interface{}) {
 	Get().Publish(topicName, args ...)
+}
+
+// Reset instance
+func Reset() MessageHub {
+	instance = nil
+	return Get()
 }
