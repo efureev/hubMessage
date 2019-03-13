@@ -2,14 +2,16 @@ package hub
 
 import (
 	"errors"
+	"fmt"
 	. "github.com/efureev/appmod"
 	"github.com/smartystreets/goconvey/convey"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestNew(t *testing.T) {
-	h := New()
+	h := Reset()
 
 	if h == nil {
 		t.Fail()
@@ -17,7 +19,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	h := Get()
+	h := Reset()
 
 	if h == nil {
 		t.Fail()
@@ -25,7 +27,7 @@ func TestGet(t *testing.T) {
 }
 
 func TestSubscribe(t *testing.T) {
-	h := Get()
+	h := Reset()
 
 	handler := func() {}
 
@@ -43,7 +45,7 @@ func TestSubscribe(t *testing.T) {
 }
 
 func TestPublish(t *testing.T) {
-	h := New()
+	h := Reset()
 
 	var wg sync.WaitGroup
 	wg.Add(3)
@@ -85,8 +87,174 @@ func TestPublish(t *testing.T) {
 	}
 }
 
+func worker(wg *sync.WaitGroup, poll *sync.Map, i int) {
+
+	for j := 0; j < 5; j++ {
+		go func(j int) {
+			defer wg.Done()
+			//log.Printf("[%d] worker [%d]\n", i, j)
+			Event(`topic`, poll, i, j)
+		}(j)
+	}
+
+}
+
+func TestPublishAsync(t *testing.T) {
+	h := Reset()
+
+	var wg sync.WaitGroup
+	var counters sync.Map
+	wg.Add(20)
+
+	h.Subscribe("topic", func(poll *sync.Map, i, j int) {
+		//log.Printf("event [%d][%d]\n", i, j)
+
+		v, ok := poll.Load(i)
+		if !ok {
+			var p sync.Map
+			p.Store(j, true)
+			poll.Store(i, &p)
+		} else {
+			if val, ok := v.(*sync.Map); ok {
+				(*val).Store(j, true)
+				poll.Store(i, &v)
+			}
+		}
+
+		/*if poll[i] == nil {
+			poll[i] = make(map[int]bool)
+		}
+		poll[i][j] = true*/
+	})
+
+	for i := 0; i < 4; i++ {
+		go worker(&wg, &counters, i)
+	}
+
+	wg.Wait()
+
+	length := 0
+
+	counters.Range(func(_, v interface{}) bool {
+		length++
+
+		l := 0
+
+		if val, ok := v.(*sync.Map); ok {
+			val.Range(func(_, _ interface{}) bool {
+				l++
+
+				return true
+			})
+
+			if l != 5 {
+				t.Fail()
+			}
+		}
+
+		return true
+	})
+}
+
+func workerPackage(wg *sync.WaitGroup, fireChan chan bool, poll *sync.Map, i int) {
+
+	t := topic(fmt.Sprintf(`topic.%d`, i))
+
+	Get().Subscribe(t, func(poll *sync.Map, fc chan bool, i, j int) {
+		//println(`e`, i, j)
+
+		v, ok := poll.Load(i)
+		if !ok {
+			var p sync.Map
+			p.Store(j, true)
+			poll.Store(i, p)
+		} else {
+			if val, ok := v.(sync.Map); ok {
+				val.Store(j, true)
+				poll.Store(i, val)
+			}
+		}
+
+		fc <- true
+	})
+
+	for j := 0; j < 5; j++ {
+		go func(j int) {
+			defer wg.Done()
+
+			Event(t, poll, fireChan, i, j)
+			Event(t, poll, fireChan, i, j)
+			Event(t, poll, fireChan, i, j)
+		}(j)
+	}
+
+}
+
+func TestPublishAsyncFromAny(t *testing.T) {
+	Reset()
+
+	var wg sync.WaitGroup
+	var counters sync.Map
+	fireCount := 0
+	fireCountChan := make(chan bool)
+
+	go func() {
+		for {
+			_, more := <-fireCountChan
+			if more {
+				fireCount++
+			}
+		}
+
+		/*for range fireCountChan {
+			fireCount++
+		}*/
+	}()
+
+	wg.Add(10)
+
+	for i := 0; i < 2; i++ {
+		go workerPackage(&wg, fireCountChan, &counters, i)
+	}
+
+	wg.Wait()
+	time.Sleep(500 * time.Millisecond)
+
+	length := 0
+
+	counters.Range(func(k, v interface{}) bool {
+		length++
+
+		l := 0
+
+		val, ok := v.(sync.Map)
+		if ok {
+			val.Range(func(_, _ interface{}) bool {
+				l++
+
+				return true
+			})
+
+			if l != 5 {
+				t.Fail()
+			}
+		}
+
+		return true
+	})
+
+	if length != 2 {
+		t.Fail()
+	}
+
+	if fireCount != 30 {
+		t.Fail()
+	}
+
+}
+
 func TestTopic(t *testing.T) {
-	h := New()
+	h := Reset()
 
 	var wg sync.WaitGroup
 	wg.Add(2)

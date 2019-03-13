@@ -1,7 +1,11 @@
+github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/efureev/appmod v1.0.1 h1:3bkSk2I4IJM37EzJOoPoIy/8p6EFjRehXvZwTa7bXUI=
 github.com/efureev/appmod v1.0.1/go.mod h1:0C/WyINGerahyPRg/tK8306TlzA4rX+PIUw/aS/s/YQ=
 github.com/efureev/appmod v1.0.2 h1:B6FEB/g7voWM8zpa7LciD1+zBO2dkGXrMCxs4uVrxtQ=
 github.com/efureev/appmod v1.0.2/go.mod h1:0C/WyINGerahyPRg/tK8306TlzA4rX+PIUw/aS/s/YQ=
+github.com/efureev/appmod v1.0.3 h1:eNReujF7zrJM6wmnxFAv5DVAugWdp5rGsQGKAQQQV6E=
+github.com/efureev/appmod v1.0.3/go.mod h1:0C/WyINGerahyPRg/tK8306TlzA4rX+PIUw/aS/s/YQ=
 github.com/gopherjs/gopherjs v0.0.0-20181017120253-0766667cb4d1/go.mod h1:wJfORRmW1u3UXTncJ5qlYoELFm8eSnnEO6hX4iZ3EWY=
 github.com/gopherjs/gopherjs v0.0.0-20190309154008-847fc94819f9/go.mod h1:wJfORRmW1u3UXTncJ5qlYoELFm8eSnnEO6hX4iZ3EWY=
 github.com/jtolds/gls v4.20.0+incompatible h1:xdiiI2gbIgH/gLH7ADydsJ1uDOEzR8yvV7C0MuV77Wo=
