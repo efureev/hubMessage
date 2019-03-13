@@ -3,14 +3,14 @@ package hub
 import (
 	"context"
 	"fmt"
-	. "github.com/efureev/appmod"
+	"github.com/efureev/appmod"
 	"reflect"
 	"sync"
 )
 
-// messageHub implements publish/subscribe messaging paradigm
-type messageHub interface {
-	AppModule
+// MessageHub implements publish/subscribe messaging paradigm
+type MessageHub interface {
+	appmod.AppModule
 
 	Publish(topicName topic, args ...interface{})
 	Close(topicName topic)
@@ -19,16 +19,16 @@ type messageHub interface {
 }
 
 type hub struct {
-	BaseAppModule
+	appmod.BaseAppModule
 
 	mtx      sync.RWMutex
-	channels ChannelsMap
+	channels channelsMap
 }
 
-var instance messageHub
+var instance MessageHub
 
 type topic string
-type ChannelsMap map[topic][]*handler
+type channelsMap map[topic][]*handler
 
 type handler struct {
 	ctx      context.Context
@@ -144,15 +144,17 @@ func buildHandlerArgs(args []interface{}) []reflect.Value {
 	return reflectedArgs
 }
 
-func Get() messageHub {
+// Get return existing instance of Hub or create it and return
+func Get() MessageHub {
 	if instance == nil {
 		instance = New()
 	}
 	return instance
 }
 
-func New() messageHub {
-	h := &hub{channels: make(ChannelsMap)}
-	h.SetConfig(NewConfig(`Hub`, `v1.0.0`))
+// New create and return new instance of Hub
+func New() MessageHub {
+	h := &hub{channels: make(channelsMap)}
+	h.SetConfig(appmod.NewConfig(`Hub`, `v1.0.0`))
 	return h
 }
