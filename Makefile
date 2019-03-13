@@ -5,7 +5,7 @@ cover: test
 
 
 test:
-	go test -coverprofile=coverage.out
+	go test -race -coverprofile=coverage.out
 
 
 check: check-go check-lint
