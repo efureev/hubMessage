@@ -46,6 +46,49 @@ func TestPublish(t *testing.T) {
 	h := New()
 
 	var wg sync.WaitGroup
+	wg.Add(3)
+
+	first := false
+	second := false
+
+	h.Subscribe("topic", func(v bool) {
+		defer wg.Done()
+		first = v
+	})
+
+	h.Subscribe("topic", func(v bool) {
+		defer wg.Done()
+		second = v
+	})
+
+	str := ``
+	h.Subscribe("test", func(v string) {
+		defer wg.Done()
+		str = v
+	})
+
+	h.Publish("topic", true)
+	h.Publish("test", `2`)
+
+	wg.Wait()
+
+	if len(h.Topics()) != 2 {
+		t.Fail()
+	}
+
+	if str != `2` {
+		t.Fail()
+	}
+
+	if first == false || second == false {
+		t.Fail()
+	}
+}
+
+func TestTopic(t *testing.T) {
+	h := New()
+
+	var wg sync.WaitGroup
 	wg.Add(2)
 
 	first := false
@@ -66,6 +109,24 @@ func TestPublish(t *testing.T) {
 	wg.Wait()
 
 	if first == false || second == false {
+		t.Fail()
+	}
+
+	hh, err := h.Topic(`topic`)
+
+	if err != nil {
+		t.Fail()
+	}
+
+	if len(hh) != 2 {
+		t.Fail()
+	}
+
+	hh, err = h.Topic(`topic2`)
+	if hh != nil {
+		t.Fail()
+	}
+	if err == nil {
 		t.Fail()
 	}
 }

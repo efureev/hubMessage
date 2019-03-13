@@ -16,6 +16,8 @@ type MessageHub interface {
 	Close(topicName topic)
 	Subscribe(topicName topic, fn interface{}) error
 	Unsubscribe(topicName topic, fn interface{}) error
+	Topics() []topic
+	Topic(topicName topic) ([]*handler, error)
 }
 
 type hub struct {
@@ -107,6 +109,30 @@ func (h *hub) Unsubscribe(topicName topic, fn interface{}) error {
 	}
 
 	return fmt.Errorf("topic %s doesn't exist", topicName)
+}
+
+// Topics return topic list
+func (h *hub) Topics() (tt []topic) {
+	h.mtx.Lock()
+	defer h.mtx.Unlock()
+
+	for t := range h.channels {
+		tt = append(tt, t)
+	}
+
+	return tt
+}
+
+// Topic return handlers array subscribe to this topic
+func (h *hub) Topic(topicName topic) ([]*handler, error) {
+	h.mtx.Lock()
+	defer h.mtx.Unlock()
+
+	if _, ok := h.channels[topicName]; ok {
+		return h.channels[topicName], nil
+	}
+
+	return nil, fmt.Errorf("topic %s doesn't exist", topicName)
 }
 
 // Close unsubscribe all handlers from given topic
