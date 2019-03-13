@@ -5,7 +5,9 @@ import (
 	"fmt"
 	. "github.com/efureev/appmod"
 	"github.com/smartystreets/goconvey/convey"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -195,20 +197,18 @@ func TestPublishAsyncFromAny(t *testing.T) {
 
 	var wg sync.WaitGroup
 	var counters sync.Map
-	fireCount := 0
+	var fireCount uint32
+
 	fireCountChan := make(chan bool)
+	//defer Get().Destroy()
+	//defer close(fireCountChan)
 
 	go func() {
 		for {
-			_, more := <-fireCountChan
-			if more {
-				fireCount++
-			}
+			<-fireCountChan
+			atomic.AddUint32(&fireCount, 1)
+			runtime.Gosched()
 		}
-
-		/*for range fireCountChan {
-			fireCount++
-		}*/
 	}()
 
 	wg.Add(10)
@@ -218,6 +218,7 @@ func TestPublishAsyncFromAny(t *testing.T) {
 	}
 
 	wg.Wait()
+
 	time.Sleep(500 * time.Millisecond)
 
 	length := 0
@@ -247,11 +248,76 @@ func TestPublishAsyncFromAny(t *testing.T) {
 		t.Fail()
 	}
 
-	if fireCount != 30 {
+	if atomic.LoadUint32(&fireCount) != 30 {
 		t.Fail()
 	}
+}
+/*
+func TestPublishTest(t *testing.T) {
+
+	var wg sync.WaitGroup
+
+	var count uint32 = 0
+	fireCountChan := make(chan bool)
+
+	go func() {
+		for {
+			<-fireCountChan
+			atomic.AddUint32(&count, 1)
+			runtime.Gosched()
+		}
+	}()
+
+	wg.Add(2)
+
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+
+			fireCountChan <- true
+			fireCountChan <- true
+		}()
+	}
+
+	wg.Wait()
+
+
+	countFinal := atomic.LoadUint32(&count)
+	println(countFinal)
 
 }
+
+func TestManning(t *testing.T) {
+	count := 0
+	fireCountChan := make(chan bool)
+
+	var wgIncrementer sync.WaitGroup
+	wgIncrementer.Add(1)
+	go func() {
+		defer wgIncrementer.Done()
+		for range fireCountChan {
+			count++
+		}
+	}()
+
+	var wgSender sync.WaitGroup
+	wgSender.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wgSender.Done()
+
+			fireCountChan <- true
+			fireCountChan <- true
+		}()
+	}
+
+	wgSender.Wait()
+	close(fireCountChan)
+	wgIncrementer.Wait()
+
+	println(count)
+}
+*/
 
 func TestTopic(t *testing.T) {
 	h := Reset()
