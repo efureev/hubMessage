@@ -122,7 +122,7 @@ func (h *hub) Unsubscribe(topicName topic, fn interface{}) error {
 			if ch.callback == rv {
 				ch.cancel()
 				close(ch.queue)
-				close(ch.queueDone)
+				//close(ch.queueDone)
 				h.channels[topicName] = append(h.channels[topicName][:i], h.channels[topicName][i+1:]...)
 			}
 		}
@@ -171,7 +171,7 @@ func (h *hub) Close(topicName topic) {
 		for _, h := range h.channels[topicName] {
 			h.cancel()
 			close(h.queue)
-			close(h.queueDone)
+			//close(h.queueDone)
 		}
 
 		delete(h.channels, topicName)
