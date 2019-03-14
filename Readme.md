@@ -13,6 +13,29 @@ go get -u github.com/efureev/hubMessage
 # Examples
 ### Basic
 ```go
+import (
+	"errors"
+	"github.com/efureev/hubMessage"
+	"log"
+)
+
+func main() {
+	h := hub.New()
+    defer h.Wait()
+	
+    h.Subscribe("console", func(msg string) {
+        println(msg)
+    })
+    
+	//..
+    
+    h.Publish("console", `Hi`)
+    hub.Event("console", `test msg`)
+	//...
+}
+```
+
+```go
 package main
 
 import (
