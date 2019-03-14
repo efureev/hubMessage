@@ -9,7 +9,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 func TestNew(t *testing.T) {
@@ -158,8 +157,6 @@ func workerPackage(wg *sync.WaitGroup, fireChan chan bool, poll *sync.Map, i int
 	t := topic(fmt.Sprintf(`topic.%d`, i))
 
 	Get().Subscribe(t, func(poll *sync.Map, fc chan bool, i, j int) {
-		//println(`e`, i, j)
-
 		v, ok := poll.Load(i)
 		if !ok {
 			var p sync.Map
@@ -189,6 +186,7 @@ func workerPackage(wg *sync.WaitGroup, fireChan chan bool, poll *sync.Map, i int
 
 func TestPublishAsyncFromAny(t *testing.T) {
 	Reset()
+	defer Get().Destroy()
 
 	var wg sync.WaitGroup
 	var counters sync.Map
@@ -212,7 +210,7 @@ func TestPublishAsyncFromAny(t *testing.T) {
 
 	wg.Wait()
 
-	time.Sleep(500 * time.Millisecond)
+	Get().Wait()
 
 	length := 0
 
@@ -314,7 +312,7 @@ func TestManning(t *testing.T) {
 */
 
 func TestWaitAsync(t *testing.T) {
-	var count uint32 = 0
+	var count uint32
 	fireCountChan := make(chan bool)
 
 	go func() {
@@ -335,17 +333,23 @@ func TestWaitAsync(t *testing.T) {
 		return err
 	})
 
+	var wg sync.WaitGroup
+	wg.Add(40)
+
 	for i := 0; i < 20; i++ {
 		go func() {
+			defer wg.Done()
 			Get().Publish(`topic`, true)
 			Event(`topic`, true)
 		}()
 
 		go func(i int) {
-			Event(`errors`, errors.New(fmt.Sprintf(`error %d`, i)))
+			defer wg.Done()
+			Event(`errors`, fmt.Errorf(`error %d`, i))
 		}(i)
 	}
 
+	wg.Wait()
 	Get().Wait()
 
 	countFinal := atomic.LoadUint32(&count)
