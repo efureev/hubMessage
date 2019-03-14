@@ -186,7 +186,6 @@ func workerPackage(wg *sync.WaitGroup, fireChan chan bool, poll *sync.Map, i int
 
 func TestPublishAsyncFromAny(t *testing.T) {
 	Reset()
-	defer Get().Destroy()
 
 	var wg sync.WaitGroup
 	var counters sync.Map
