@@ -9,3 +9,81 @@
 ```bash
 go get -u github.com/efureev/hubMessage
 ```
+
+# Examples
+### Basic
+```go
+package main
+
+import (
+	"github.com/efureev/appmod"
+	"github.com/efureev/hubMessage"
+	"log"
+)
+
+func main() {
+    hub.Get().BeforeStart(func(_ appmod.AppModule) error {
+        hub.Sub(`app.console`, func(msg string) {
+            log.Println(msg)
+        })
+    
+        return nil
+    })
+    defer hub.Get().Wait() // if you want wait for finish message sending
+    hub.Get().Init()
+    
+    // ... send message to hub from any places
+    
+    hub.Event(`app.console`, `Config loaded`)
+    hub.Event(`app.console`, `Test message`)
+}
+```
+
+### Error handling
+```go
+package main
+
+import (
+	"errors"
+	"github.com/efureev/hubMessage"
+	"log"
+)
+
+func main() {
+	h := hub.New()
+    out := make(chan error)
+    fatal := make(chan error)
+    defer h.Wait()
+    defer close(out)
+    defer close(fatal)
+    
+    go func() {
+    	for {
+            select{
+            case e:= <-out:
+                println(e)
+            case e:= <-fatal:
+                log.Fatal(e)
+            }
+    	}
+    }()
+    
+    h.Subscribe("errors", func(err error) {
+        out <- err
+    })
+    
+    h.Subscribe("errors.fatal", func(err error) {
+        fatal <- err
+    })
+    
+    h.Subscribe("errors.toChannel", func(err error, ch chan <- error) {
+        ch <- err
+    })
+
+    
+    h.Publish("errors", errors.New("I do throw error"))
+    h.Publish("errors.fatal", errors.New("I do throw error"))
+    h.Publish("errors.toChannel", errors.New("I do throw error"), fatal)
+    h.Publish("errors.toChannel", errors.New("I do throw error"), out)
+}
+```
