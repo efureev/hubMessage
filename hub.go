@@ -88,9 +88,9 @@ func (h *hub) Subscribe(topicName topic, fn interface{}) error {
 						}
 					}
 
-					go func() {
-						hndr.queueDone <- err
-					}()
+					go func(done chan<- error) {
+						done <- err
+					}(hndr.queueDone)
 				}
 			case _, ok := <-hndr.queueDone:
 				if ok {
