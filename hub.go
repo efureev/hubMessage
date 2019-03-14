@@ -18,12 +18,15 @@ type MessageHub interface {
 	Unsubscribe(topicName topic, fn interface{}) error
 	Topics() []topic
 	Topic(topicName topic) ([]*handler, error)
+	Wait()
 }
 
 type hub struct {
 	appmod.BaseAppModule
 
-	mtx      sync.RWMutex
+	mtx sync.RWMutex
+	wg  sync.WaitGroup
+
 	channels channelsMap
 }
 
@@ -33,10 +36,11 @@ type topic string
 type channelsMap map[topic][]*handler
 
 type handler struct {
-	ctx      context.Context
-	callback reflect.Value
-	cancel   context.CancelFunc
-	queue    chan []reflect.Value
+	ctx       context.Context
+	callback  reflect.Value
+	cancel    context.CancelFunc
+	queue     chan []reflect.Value
+	queueDone chan error
 }
 
 // Publish publishes arguments to the given topic subscribers
@@ -47,8 +51,9 @@ func (h *hub) Publish(topicName topic, args ...interface{}) {
 	defer h.mtx.RUnlock()
 
 	if hs, ok := h.channels[topicName]; ok {
-		for _, h := range hs {
-			h.queue <- rArgs
+		for _, handler := range hs {
+			h.wg.Add(1)
+			handler.queue <- rArgs
 		}
 	}
 }
@@ -62,10 +67,11 @@ func (h *hub) Subscribe(topicName topic, fn interface{}) error {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	hndr := &handler{
-		callback: reflect.ValueOf(fn),
-		ctx:      ctx,
-		cancel:   cancel,
-		queue:    make(chan []reflect.Value),
+		callback:  reflect.ValueOf(fn),
+		ctx:       ctx,
+		cancel:    cancel,
+		queue:     make(chan []reflect.Value),
+		queueDone: make(chan error),
 	}
 
 	go func() {
@@ -73,7 +79,22 @@ func (h *hub) Subscribe(topicName topic, fn interface{}) error {
 			select {
 			case args, ok := <-hndr.queue:
 				if ok {
-					hndr.callback.Call(args)
+					res := hndr.callback.Call(args)
+
+					var err error
+					if len(res) > 0 {
+						if v := res[0].Interface(); v != nil {
+							err = v.(error)
+						}
+					}
+
+					go func() {
+						hndr.queueDone <- err
+					}()
+				}
+			case _, ok := <-hndr.queueDone:
+				if ok {
+					h.wg.Done()
 				}
 			case <-hndr.ctx.Done():
 				return
@@ -101,6 +122,7 @@ func (h *hub) Unsubscribe(topicName topic, fn interface{}) error {
 			if ch.callback == rv {
 				ch.cancel()
 				close(ch.queue)
+				close(ch.queueDone)
 				h.channels[topicName] = append(h.channels[topicName][:i], h.channels[topicName][i+1:]...)
 			}
 		}
@@ -135,6 +157,11 @@ func (h *hub) Topic(topicName topic) ([]*handler, error) {
 	return nil, fmt.Errorf("topic %s doesn't exist", topicName)
 }
 
+// Wait until all message will send
+func (h *hub) Wait() {
+	h.wg.Wait()
+}
+
 // Close unsubscribe all handlers from given topic
 func (h *hub) Close(topicName topic) {
 	h.mtx.Lock()
@@ -144,6 +171,7 @@ func (h *hub) Close(topicName topic) {
 		for _, h := range h.channels[topicName] {
 			h.cancel()
 			close(h.queue)
+			close(h.queueDone)
 		}
 
 		delete(h.channels, topicName)
@@ -192,7 +220,7 @@ func Sub(topicName topic, fn interface{}) error {
 
 // Event dispatch event
 func Event(topicName topic, args ...interface{}) {
-	Get().Publish(topicName, args ...)
+	Get().Publish(topicName, args...)
 }
 
 // Reset instance

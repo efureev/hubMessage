@@ -122,11 +122,6 @@ func TestPublishAsync(t *testing.T) {
 				poll.Store(i, &v)
 			}
 		}
-
-		/*if poll[i] == nil {
-			poll[i] = make(map[int]bool)
-		}
-		poll[i][j] = true*/
 	})
 
 	for i := 0; i < 4; i++ {
@@ -200,8 +195,6 @@ func TestPublishAsyncFromAny(t *testing.T) {
 	var fireCount uint32
 
 	fireCountChan := make(chan bool)
-	//defer Get().Destroy()
-	//defer close(fireCountChan)
 
 	go func() {
 		for {
@@ -252,6 +245,7 @@ func TestPublishAsyncFromAny(t *testing.T) {
 		t.Fail()
 	}
 }
+
 /*
 func TestPublishTest(t *testing.T) {
 
@@ -318,6 +312,50 @@ func TestManning(t *testing.T) {
 	println(count)
 }
 */
+
+func TestWaitAsync(t *testing.T) {
+	var count uint32 = 0
+	fireCountChan := make(chan bool)
+
+	go func() {
+		for {
+			<-fireCountChan
+			atomic.AddUint32(&count, 1)
+			runtime.Gosched()
+		}
+	}()
+
+	Reset().Subscribe("topic", func(b bool) error {
+		fireCountChan <- b
+		return nil
+	})
+
+	Get().Subscribe("errors", func(err error) error {
+		fireCountChan <- true
+		return err
+	})
+
+	for i := 0; i < 20; i++ {
+		go func() {
+			Get().Publish(`topic`, true)
+			Event(`topic`, true)
+		}()
+
+		go func(i int) {
+			Event(`errors`, errors.New(fmt.Sprintf(`error %d`, i)))
+		}(i)
+	}
+
+	Get().Wait()
+
+	countFinal := atomic.LoadUint32(&count)
+
+	println(countFinal)
+
+	if countFinal != 60 {
+		t.Fail()
+	}
+}
 
 func TestTopic(t *testing.T) {
 	h := Reset()
