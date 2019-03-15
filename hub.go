@@ -40,7 +40,7 @@ type handler struct {
 	callback  reflect.Value
 	cancel    context.CancelFunc
 	queue     chan []reflect.Value
-	queueDone chan error
+	//queueDone chan error
 }
 
 // Publish publishes arguments to the given topic subscribers
@@ -71,7 +71,7 @@ func (h *hub) Subscribe(topicName topic, fn interface{}) error {
 		ctx:       ctx,
 		cancel:    cancel,
 		queue:     make(chan []reflect.Value),
-		queueDone: make(chan error),
+		//queueDone: make(chan error),
 	}
 
 	go func() {
@@ -79,7 +79,8 @@ func (h *hub) Subscribe(topicName topic, fn interface{}) error {
 			select {
 			case args, ok := <-hndr.queue:
 				if ok {
-					res := hndr.callback.Call(args)
+					hndr.callback.Call(args)
+					/*res := hndr.callback.Call(args)
 
 					var err error
 					if len(res) > 0 {
@@ -87,15 +88,19 @@ func (h *hub) Subscribe(topicName topic, fn interface{}) error {
 							err = v.(error)
 						}
 					}
+*/
+					go func() {
+						h.wg.Done()
+					}()
 
-					go func(done chan<- error) {
+					/*go func(done chan<- error) {
 						done <- err
-					}(hndr.queueDone)
+					}(hndr.queueDone)*/
 				}
-			case _, ok := <-hndr.queueDone:
+			/*case _, ok := <-hndr.queueDone:
 				if ok {
 					h.wg.Done()
-				}
+				}*/
 			case <-hndr.ctx.Done():
 				return
 			}
