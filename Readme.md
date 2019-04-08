@@ -110,3 +110,45 @@ func main() {
     h.Publish("errors.toChannel", errors.New("I do throw error"), out)
 }
 ```
+
+
+### Event bus
+```go
+
+import (
+	"auth/internal/models"
+	hub "github.com/efureev/hubMessage"
+)
+
+func registerEvents(events map[string]interface{}) {
+	for event, handle := range events {
+		err := hub.Sub(event, handle)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+}
+
+func eventList() map[string]interface{} {
+	return map[string]interface{}{
+		`user.registered`: func(user *models.User) {
+			println(`user registered: ` + user.Id)
+		},
+		`user.activated`: func(user *models.User) {
+			println(`user activated: ` + user.Id)
+		},
+		`test`: func(_ string) {
+            out <- `test`
+        },
+        `empty`: func() {
+            out <- `empty`
+        },
+	}
+}
+
+// ... in other code:
+hub.Event(`user.registered`, &models.User{})
+hub.Event(`empty`)
+
+```

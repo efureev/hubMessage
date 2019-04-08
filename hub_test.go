@@ -523,3 +523,62 @@ func TestHub(t *testing.T) {
 
 	})
 }
+
+func registerEvents(events map[string]interface{}) {
+	for event, handle := range events {
+		err := Sub(event, handle)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+}
+
+func TestRegisterEvents(t *testing.T) {
+
+	firedEvent := make(map[string]bool)
+	out := make(chan string)
+
+	defer close(out)
+	var wg sync.WaitGroup
+
+	eventList := map[string]interface{}{
+		`user.registered`: func() {
+			out <- `user.registered`
+		},
+		`test`: func(_ string) {
+			out <- `test`
+		},
+		`empty`: func() {
+			out <- `empty`
+		},
+	}
+
+	wg.Add(len(eventList))
+
+	go func() {
+		for {
+			select {
+			case e, ok := <-out:
+				if ok {
+					firedEvent[e] = true
+					wg.Done()
+				}
+			}
+		}
+	}()
+
+	registerEvents(eventList)
+
+	Event(`user.registered`)
+	Event(`test`, ``)
+	Event(`empty`)
+
+	wg.Wait()
+
+	convey.Convey("Custom Events", t, func() {
+
+		convey.So(len(eventList), convey.ShouldEqual, len(firedEvent))
+	})
+
+}
