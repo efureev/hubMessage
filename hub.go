@@ -36,10 +36,10 @@ type topic string
 type channelsMap map[topic][]*handler
 
 type handler struct {
-	ctx       context.Context
-	callback  reflect.Value
-	cancel    context.CancelFunc
-	queue     chan []reflect.Value
+	ctx      context.Context
+	callback reflect.Value
+	cancel   context.CancelFunc
+	queue    chan []reflect.Value
 	//queueDone chan error
 }
 
@@ -67,10 +67,10 @@ func (h *hub) Subscribe(topicName topic, fn interface{}) error {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	hndr := &handler{
-		callback:  reflect.ValueOf(fn),
-		ctx:       ctx,
-		cancel:    cancel,
-		queue:     make(chan []reflect.Value),
+		callback: reflect.ValueOf(fn),
+		ctx:      ctx,
+		cancel:   cancel,
+		queue:    make(chan []reflect.Value),
 		//queueDone: make(chan error),
 	}
 
@@ -88,7 +88,7 @@ func (h *hub) Subscribe(topicName topic, fn interface{}) error {
 							err = v.(error)
 						}
 					}
-*/
+					*/
 					go func() {
 						h.wg.Done()
 					}()
@@ -98,9 +98,9 @@ func (h *hub) Subscribe(topicName topic, fn interface{}) error {
 					}(hndr.queueDone)*/
 				}
 			/*case _, ok := <-hndr.queueDone:
-				if ok {
-					h.wg.Done()
-				}*/
+			if ok {
+				h.wg.Done()
+			}*/
 			case <-hndr.ctx.Done():
 				return
 			}
@@ -219,13 +219,13 @@ func New() MessageHub {
 }
 
 // Sub subscribe listeners
-func Sub(topicName topic, fn interface{}) error {
-	return Get().Subscribe(topicName, fn)
+func Sub(topicName string, fn interface{}) error {
+	return Get().Subscribe(topic(topicName), fn)
 }
 
 // Event dispatch event
-func Event(topicName topic, args ...interface{}) {
-	Get().Publish(topicName, args...)
+func Event(topicName string, args ...interface{}) {
+	Get().Publish(topic(topicName), args...)
 }
 
 // Reset instance
