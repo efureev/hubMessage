@@ -154,9 +154,9 @@ func TestPublishAsync(t *testing.T) {
 
 func workerPackage(wg *sync.WaitGroup, fireChan chan bool, poll *sync.Map, i int) {
 
-	t := topic(fmt.Sprintf(`topic.%d`, i))
+	t := fmt.Sprintf(`topic.%d`, i)
 
-	Get().Subscribe(t, func(poll *sync.Map, fc chan bool, i, j int) {
+	Get().Subscribe(topic(t), func(poll *sync.Map, fc chan bool, i, j int) {
 		v, ok := poll.Load(i)
 		if !ok {
 			var p sync.Map
