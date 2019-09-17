@@ -28,18 +28,11 @@ matrix:
         - go build
         - go test -coverprofile c.out
         - go test -v -cover -race -coverprofile=coverage.txt -covermode=atomic
-
-before_script:
-  - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
-  - chmod +x ./cc-test-reporter
-  - ./cc-test-reporter before-build
-
-script:
-  - go test -coverprofile c.out ./...
-  - go test -race -coverprofile=coverage.txt -covermode=atomic ./...
-
-after_script:
-  - ./cc-test-reporter after-build --exit-code $TRAVIS_TEST_RESULT
-
-after_success:
-  - bash <(curl -s https://codecov.io/bash)
+      before_script:
+        - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+        - chmod +x ./cc-test-reporter
+        - ./cc-test-reporter before-build
+      after_script:
+        - ./cc-test-reporter after-build --exit-code $TRAVIS_TEST_RESULT
+      after_success:
+        - bash <(curl -s https://codecov.io/bash)
