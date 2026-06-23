@@ -1,26 +1,36 @@
-PKG=./
+PKG := ./...
 
+.DEFAULT_GOAL := test
+
+## test: run tests with race detector and coverage profile
+test:
+	go test -race -covermode=atomic -coverprofile=coverage.out $(PKG)
+
+## cover: open the HTML coverage report (runs tests first)
 cover: test
 	go tool cover -html=coverage.out
 
+## check: run all static checks (vet + lint)
+check: vet lint
 
-test:
-	go test -race -coverprofile=coverage.out
+## vet: run go vet
+vet:
+	go vet $(PKG)
 
+## lint: run golangci-lint
+lint:
+	golangci-lint run $(PKG)
 
-check: check-go check-lint
-
-check-go:
-	for P in ${PKG}; do \
-		go test -coverprofile=coverage.out `$$P`; \
-	done
-
-check-lint:
-	for P in ${PKG}; do \
-		golint -set_exit_status `$$P`; \
-	done
-
+## download-tools: install development tools
 download-tools:
-	go get -u golang.org/x/lint/golint \
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
-.PHONY: check-go check-lint download-tools
+## tidy: tidy go modules
+tidy:
+	go mod tidy
+
+## clean: remove generated artifacts
+clean:
+	rm -f coverage.out
+
+.PHONY: test cover check vet lint download-tools tidy clean

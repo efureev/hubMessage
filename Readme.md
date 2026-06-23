@@ -1,23 +1,66 @@
-# EventBus System
+# hubMessage
+
+[![Test](https://github.com/efureev/hubMessage/actions/workflows/test.yml/badge.svg)](https://github.com/efureev/hubMessage/actions/workflows/test.yml)
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/0cdced379f3e41d39732a720263c8393)](https://app.codacy.com/app/efureev/hubMessage?utm_source=github.com&utm_medium=referral&utm_content=efureev/hubMessage&utm_campaign=Badge_Grade_Dashboard)
-[![Build Status](https://travis-ci.org/efureev/hubMessage.svg?branch=master)](https://travis-ci.org/efureev/hubMessage)
 [![Maintainability](https://api.codeclimate.com/v1/badges/82d6074b251f785f8c23/maintainability)](https://codeclimate.com/github/efureev/hubMessage/maintainability)
 [![Test Coverage](https://api.codeclimate.com/v1/badges/82d6074b251f785f8c23/test_coverage)](https://codeclimate.com/github/efureev/hubMessage/test_coverage)
 [![codecov](https://codecov.io/gh/efureev/hubMessage/branch/master/graph/badge.svg)](https://codecov.io/gh/efureev/hubMessage)
 [![Go Report Card](https://goreportcard.com/badge/github.com/efureev/hubMessage)](https://goreportcard.com/report/github.com/efureev/hubMessage)
 
-# Install
+`hubMessage` is a lightweight in-process **publish/subscribe (event bus)** library for Go.
+
+It lets different parts of an application communicate through named **topics** without
+direct dependencies between them: producers `Publish` messages to a topic, and any number
+of subscribers registered via `Subscribe` receive them asynchronously.
+
+### Features
+
+- Simple publish/subscribe API built around named topics.
+- Handlers are plain functions with arbitrary signatures — arguments passed to `Publish`
+  are delivered to the subscriber via reflection.
+- Each subscriber runs in its own goroutine; publishing is non-blocking for the producer.
+- `Wait()` lets you block until all in-flight messages have been delivered.
+- A package-level singleton (`Get`, `Sub`, `Event`, `Reset`) for app-wide event bus usage.
+- Integrates with [`appmod`](https://github.com/efureev/appmod) as an application module
+  (lifecycle hooks like `BeforeStart`, `Init`, `Destroy`).
+
+### Requirements
+
+- Go 1.13+
+
+### Install
+
 ```bash
 go get -u github.com/efureev/hubMessage
 ```
 
-# Examples
+> The module path is `github.com/efureev/hubMessage`, the package name is `hub`.
+
+### API overview
+
+| Function / Method                                  | Description                                                        |
+|----------------------------------------------------|--------------------------------------------------------------------|
+| `hub.New() MessageHub`                             | Create a new, independent hub instance.                            |
+| `hub.Get() MessageHub`                             | Return the shared (singleton) hub, creating it on first call.      |
+| `hub.Reset() MessageHub`                           | Destroy the shared hub and create a fresh one.                     |
+| `hub.Sub(topic string, fn interface{}) error`      | Subscribe `fn` to a topic on the shared hub.                       |
+| `hub.Event(topic string, args ...interface{})`     | Publish a message to a topic on the shared hub.                    |
+| `(h) Subscribe(topic, fn) error`                   | Register a handler function for a topic.                           |
+| `(h) Unsubscribe(topic, fn) error`                 | Remove a previously registered handler.                            |
+| `(h) Publish(topic, args...)`                      | Deliver `args` to every handler subscribed to the topic.           |
+| `(h) Topics() []topic`                             | List all topics that currently have subscribers.                   |
+| `(h) Topic(topic) ([]*handler, error)`             | Return the handlers registered for a topic.                        |
+| `(h) Close(topic)`                                 | Unsubscribe all handlers from a topic.                             |
+| `(h) Wait()`                                       | Block until all published messages have been processed.            |
+
+> Handler signatures must match the arguments passed to `Publish`/`Event`; a mismatch
+> will panic at delivery time (reflection `Call`).
+
+## Examples
 ### Basic
 ```go
 import (
-	"errors"
 	"github.com/efureev/hubMessage"
-	"log"
 )
 
 func main() {
