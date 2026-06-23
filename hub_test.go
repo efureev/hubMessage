@@ -551,14 +551,9 @@ func TestRegisterEvents(t *testing.T) {
 	wg.Add(len(eventList))
 
 	go func() {
-		for {
-			select {
-			case e, ok := <-out:
-				if ok {
-					firedEvent[e] = true
-					wg.Done()
-				}
-			}
+		for e := range out {
+			firedEvent[e] = true
+			wg.Done()
 		}
 	}()
 
@@ -702,7 +697,7 @@ func TestDestroyStopsGoroutines(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Allow the goroutines to observe the cancelled context and exit.
+	// Allow the goroutines to observe the canceled context and exit.
 	deadline := time.Now().Add(2 * time.Second)
 	for runtime.NumGoroutine() > base+5 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)

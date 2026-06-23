@@ -26,15 +26,15 @@ of subscribers registered via `Subscribe` receive them asynchronously.
 
 ### Requirements
 
-- Go 1.13+
+- Go 1.24+
 
 ### Install
 
 ```bash
-go get -u github.com/efureev/hubMessage
+go get -u github.com/efureev/hubMessage/v2
 ```
 
-> The module path is `github.com/efureev/hubMessage`, the package name is `hub`.
+> The module path is `github.com/efureev/hubMessage/v2`, the package name is `hub`.
 
 ### API overview
 
@@ -60,7 +60,7 @@ go get -u github.com/efureev/hubMessage
 ### Basic
 ```go
 import (
-	"github.com/efureev/hubMessage"
+	"github.com/efureev/hubMessage/v2"
 )
 
 func main() {
@@ -84,7 +84,7 @@ package main
 
 import (
 	"github.com/efureev/appmod"
-	"github.com/efureev/hubMessage"
+	"github.com/efureev/hubMessage/v2"
 	"log"
 )
 
@@ -112,7 +112,7 @@ package main
 
 import (
 	"errors"
-	"github.com/efureev/hubMessage"
+	"github.com/efureev/hubMessage/v2"
 	"log"
 )
 
@@ -161,7 +161,7 @@ func main() {
 
 import (
 	"auth/internal/models"
-	hub "github.com/efureev/hubMessage"
+	hub "github.com/efureev/hubMessage/v2"
 )
 
 func registerEvents(events map[string]interface{}) {

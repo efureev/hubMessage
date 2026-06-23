@@ -31,7 +31,7 @@ type hub struct {
 	channels channelsMap
 
 	// pending tracks the number of in-flight messages. It is guarded by
-	// pendingMtx and signalled via pendingCond so that Wait() may be called
+	// pendingMtx and signaled via pendingCond so that Wait() may be called
 	// concurrently with Publish() without the misuse restrictions of
 	// sync.WaitGroup (where Add must happen-before Wait on a zero counter).
 	pendingMtx  sync.Mutex
@@ -73,7 +73,7 @@ func (h *hub) Publish(topicName topic, args ...interface{}) {
 	for _, hndr := range snapshot {
 		h.addPending(1)
 
-		// Deliver, but bail out if the handler has been cancelled
+		// Deliver, but bail out if the handler has been canceled
 		// (Unsubscribe/Close) so we neither block forever nor send on a
 		// goroutine that has already stopped.
 		select {
@@ -299,7 +299,7 @@ func Event(topicName string, args ...interface{}) {
 
 // Reset instance
 func Reset() MessageHub {
-	Get().Destroy()
+	_ = Get().Destroy()
 
 	instanceMtx.Lock()
 	instance = nil

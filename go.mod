@@ -1,10 +1,14 @@
-module github.com/efureev/hubMessage
+module github.com/efureev/hubMessage/v2
 
-go 1.13
+go 1.24
 
 require (
 	github.com/efureev/appmod v1.0.4
-	github.com/gopherjs/gopherjs v0.0.0-20190309154008-847fc94819f9 // indirect
-	github.com/smartystreets/assertions v0.0.0-20190215210624-980c5ac6f3ac // indirect
-	github.com/smartystreets/goconvey v0.0.0-20190731233626-505e41936337
+	github.com/smartystreets/goconvey v1.8.1
+)
+
+require (
+	github.com/gopherjs/gopherjs v1.17.2 // indirect
+	github.com/jtolds/gls v4.20.0+incompatible // indirect
+	github.com/smarty/assertions v1.15.0 // indirect
 )

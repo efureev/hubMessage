@@ -22,8 +22,12 @@ fmt: ## Run source code formatter tools
 	$(DC_GO_RUN) go mod tidy
 
 # Code Quality
-lint: ## Run go linters
-	$(DC_LINT_RUN) golangci-lint run
+lint: ## Run go linters (uses local golangci-lint if present, otherwise docker-compose)
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run ./...; \
+	else \
+		$(DC_LINT_RUN) golangci-lint run; \
+	fi
 
 # Testing
 gotest: ## Run go tests
