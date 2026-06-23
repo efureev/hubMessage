@@ -3,12 +3,14 @@ package hub
 import (
 	"errors"
 	"fmt"
-	. "github.com/efureev/appmod"
-	"github.com/smartystreets/goconvey/convey"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	. "github.com/efureev/appmod"
+	"github.com/smartystreets/goconvey/convey"
 )
 
 func TestNew(t *testing.T) {
@@ -159,11 +161,11 @@ func workerPackage(wg *sync.WaitGroup, fireChan chan bool, poll *sync.Map, i int
 	Get().Subscribe(topic(t), func(poll *sync.Map, fc chan bool, i, j int) {
 		v, ok := poll.Load(i)
 		if !ok {
-			var p sync.Map
+			p := &sync.Map{}
 			p.Store(j, true)
 			poll.Store(i, p)
 		} else {
-			if val, ok := v.(sync.Map); ok {
+			if val, ok := v.(*sync.Map); ok {
 				val.Store(j, true)
 				poll.Store(i, val)
 			}
@@ -218,7 +220,7 @@ func TestPublishAsyncFromAny(t *testing.T) {
 
 		l := 0
 
-		val, ok := v.(sync.Map)
+		val, ok := v.(*sync.Map)
 		if ok {
 			val.Range(func(_, _ interface{}) bool {
 				l++
@@ -242,73 +244,6 @@ func TestPublishAsyncFromAny(t *testing.T) {
 		t.Fail()
 	}
 }
-
-/*
-func TestPublishTest(t *testing.T) {
-
-	var wg sync.WaitGroup
-
-	var count uint32 = 0
-	fireCountChan := make(chan bool)
-
-	go func() {
-		for {
-			<-fireCountChan
-			atomic.AddUint32(&count, 1)
-			runtime.Gosched()
-		}
-	}()
-
-	wg.Add(2)
-
-	for i := 0; i < 2; i++ {
-		go func() {
-			defer wg.Done()
-
-			fireCountChan <- true
-			fireCountChan <- true
-		}()
-	}
-
-	wg.Wait()
-
-
-	countFinal := atomic.LoadUint32(&count)
-	println(countFinal)
-
-}
-
-func TestManning(t *testing.T) {
-	count := 0
-	fireCountChan := make(chan bool)
-
-	var wgIncrementer sync.WaitGroup
-	wgIncrementer.Add(1)
-	go func() {
-		defer wgIncrementer.Done()
-		for range fireCountChan {
-			count++
-		}
-	}()
-
-	var wgSender sync.WaitGroup
-	wgSender.Add(2)
-	for i := 0; i < 2; i++ {
-		go func() {
-			defer wgSender.Done()
-
-			fireCountChan <- true
-			fireCountChan <- true
-		}()
-	}
-
-	wgSender.Wait()
-	close(fireCountChan)
-	wgIncrementer.Wait()
-
-	println(count)
-}
-*/
 
 func TestWaitAsync(t *testing.T) {
 	var count uint32
@@ -441,6 +376,65 @@ func TestGlobalFunc(t *testing.T) {
 		t.Fail()
 	}
 
+}
+
+func TestSubscribeNil(t *testing.T) {
+	h := New()
+
+	if err := h.Subscribe("topic", nil); err == nil {
+		t.Fatal("expected error for nil handler")
+	}
+
+	if err := h.Unsubscribe("topic", 123); err == nil {
+		t.Fatal("expected error for non-func handler in Unsubscribe")
+	}
+}
+
+func TestHandlerPanicDoesNotBlockWait(t *testing.T) {
+	h := New()
+
+	if err := h.Subscribe("boom", func() { panic("boom") }); err != nil {
+		t.Fatal(err)
+	}
+
+	h.Publish("boom")
+
+	done := make(chan struct{})
+	go func() {
+		h.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait() blocked after a handler panic")
+	}
+}
+
+func TestUnsubscribeRemovesAllMatching(t *testing.T) {
+	h := Reset()
+
+	handler := func() {}
+
+	if err := h.Subscribe("topic", handler); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Subscribe("topic", handler); err != nil {
+		t.Fatal(err)
+	}
+
+	if hh, _ := h.Topic("topic"); len(hh) != 2 {
+		t.Fatalf("expected 2 handlers, got %d", len(hh))
+	}
+
+	if err := h.Unsubscribe("topic", handler); err != nil {
+		t.Fatal(err)
+	}
+
+	if hh, _ := h.Topic("topic"); len(hh) != 0 {
+		t.Fatalf("expected 0 handlers after unsubscribe, got %d", len(hh))
+	}
 }
 
 func TestHub(t *testing.T) {
@@ -581,4 +575,140 @@ func TestRegisterEvents(t *testing.T) {
 		convey.So(len(eventList), convey.ShouldEqual, len(firedEvent))
 	})
 
+}
+
+// BUG-9: a handler may subscribe/close from within its own callback without
+// deadlocking, because Publish no longer holds the lock while delivering.
+func TestPublishFromHandlerNoDeadlock(t *testing.T) {
+	h := New()
+
+	done := make(chan struct{})
+
+	if err := h.Subscribe("topic", func() {
+		// These calls need the write lock; they must not deadlock with the
+		// in-flight Publish that delivered this very message.
+		_ = h.Subscribe("other", func() {})
+		h.Close("other")
+		close(done)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	h.Publish("topic")
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Publish/handler deadlocked")
+	}
+
+	h.Wait()
+}
+
+// BUG-9: a slow subscriber must not block concurrent Subscribe calls, because
+// Publish releases the read lock before delivering.
+func TestSlowSubscriberDoesNotBlockSubscribe(t *testing.T) {
+	h := New()
+
+	release := make(chan struct{})
+	if err := h.Subscribe("slow", func() { <-release }); err != nil {
+		t.Fatal(err)
+	}
+
+	go h.Publish("slow")
+
+	subscribed := make(chan struct{})
+	go func() {
+		_ = h.Subscribe("fast", func() {})
+		close(subscribed)
+	}()
+
+	select {
+	case <-subscribed:
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("Subscribe blocked by a slow subscriber")
+	}
+
+	close(release)
+	h.Wait()
+}
+
+// BUG-10: Wait must be safe to call concurrently with Publish without
+// triggering a WaitGroup-style misuse panic.
+func TestConcurrentPublishAndWait(t *testing.T) {
+	h := New()
+
+	if err := h.Subscribe("topic", func() {}); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(60)
+
+	for i := 0; i < 30; i++ {
+		go func() {
+			defer wg.Done()
+			h.Publish("topic")
+		}()
+		go func() {
+			defer wg.Done()
+			h.Wait()
+		}()
+	}
+
+	wg.Wait()
+	h.Wait()
+}
+
+// BUG-11: Topic returns a defensive copy, so mutating the result must not
+// affect the hub's internal state.
+func TestTopicReturnsCopy(t *testing.T) {
+	h := New()
+
+	if err := h.Subscribe("topic", func() {}); err != nil {
+		t.Fatal(err)
+	}
+
+	hh, err := h.Topic("topic")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hh[0] = nil
+
+	again, err := h.Topic("topic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 1 || again[0] == nil {
+		t.Fatal("Topic must return a defensive copy")
+	}
+}
+
+// BUG-12/BUG-13: Destroy must be race-free under concurrent Publish/Subscribe
+// and must stop all subscriber goroutines (no leak).
+func TestDestroyStopsGoroutines(t *testing.T) {
+	base := runtime.NumGoroutine()
+
+	h := New()
+	for i := 0; i < 50; i++ {
+		if err := h.Subscribe(topic(fmt.Sprintf("t.%d", i)), func() {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := h.Destroy(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Allow the goroutines to observe the cancelled context and exit.
+	deadline := time.Now().Add(2 * time.Second)
+	for runtime.NumGoroutine() > base+5 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if leaked := runtime.NumGoroutine() - base; leaked > 5 {
+		t.Fatalf("subscriber goroutines leaked after Destroy: %d", leaked)
+	}
 }
