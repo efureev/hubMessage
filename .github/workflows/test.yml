@@ -47,12 +47,12 @@ jobs:
         os: [ ubuntu-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
       - name: Install Go
         uses: actions/setup-go@v6
         with:
           go-version-file: 'go.mod'
-      - name: Checkout code
-        uses: actions/checkout@v6
       - uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
