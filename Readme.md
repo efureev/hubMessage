@@ -196,3 +196,27 @@ hub.Event(`user.registered`, &models.User{})
 hub.Event(`empty`)
 
 ```
+
+## Development
+
+The project ships with a containerized dev setup (see `docker-compose.yml`), so you don't
+need a local Go toolchain or `golangci-lint` installed. All commands are wrapped in the
+`Makefile`:
+
+```bash
+make            # show available commands
+make test       # run linter + tests (race detector + coverage) in containers
+make gotest     # run tests only
+make lint       # run golangci-lint only
+make fmt        # gofmt + goimports + go mod tidy
+make cover      # generate coverage.html
+make shell      # open a shell inside the Go container
+make clean      # tear down containers and remove generated artifacts
+```
+
+Tooling:
+
+- `go` service — `golang:1.25` image, used for tests/format.
+- `golint` service — `golangci/golangci-lint:v2.7-alpine`, configured via `.golangci.yml`.
+
+The same checks run in CI via GitHub Actions (`.github/workflows/test.yml`).

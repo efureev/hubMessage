@@ -1,36 +1,45 @@
-PKG := ./...
+#!/usr/bin/make
+SHELL = /bin/sh
 
-.DEFAULT_GOAL := test
+# Docker Compose Configuration
+DC_BASE_ARGS = --rm --user "$(shell id -u):$(shell id -g)" --no-deps
+DC_GO_RUN = docker-compose run $(DC_BASE_ARGS) go
+DC_LINT_RUN = docker-compose run --rm --no-deps golint
 
-## test: run tests with race detector and coverage profile
-test:
-	go test -race -covermode=atomic -coverprofile=coverage.out $(PKG)
+.PHONY : help fmt lint gotest test cover shell clean
+.DEFAULT_GOAL : help
+.SILENT : lint gotest
 
-## cover: open the HTML coverage report (runs tests first)
-cover: test
-	go tool cover -html=coverage.out
+# Help and Documentation
+help: ## Show this help
+	@printf "\033[33m%s:\033[0m\n" 'Available commands'
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[32m%-11s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-## check: run all static checks (vet + lint)
-check: vet lint
+# Code Formatting
+fmt: ## Run source code formatter tools
+	$(DC_GO_RUN) sh -c 'go install golang.org/x/tools/cmd/goimports@latest && $$GOPATH/bin/goimports -d -w .'
+	$(DC_GO_RUN) gofmt -s -w -d .
+	$(DC_GO_RUN) go mod tidy
 
-## vet: run go vet
-vet:
-	go vet $(PKG)
+# Code Quality
+lint: ## Run go linters
+	$(DC_LINT_RUN) golangci-lint run
 
-## lint: run golangci-lint
-lint:
-	golangci-lint run $(PKG)
+# Testing
+gotest: ## Run go tests
+	docker-compose run $(DC_BASE_ARGS) -e CGO_ENABLED=1 go go test -v -race -timeout 30s -covermode=atomic -coverprofile=coverage.out ./...
 
-## download-tools: install development tools
-download-tools:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+test: lint gotest ## Run go tests and linters
 
-## tidy: tidy go modules
-tidy:
-	go mod tidy
+# Coverage
+cover: gotest ## Build the HTML coverage report (runs tests first)
+	$(DC_GO_RUN) go tool cover -html=coverage.out -o coverage.html
 
-## clean: remove generated artifacts
-clean:
-	rm -f coverage.out
+# Development Tools
+shell: ## Start shell into container with golang
+	$(DC_GO_RUN) bash
 
-.PHONY: test cover check vet lint download-tools tidy clean
+# Cleanup
+clean: ## Make clean
+	docker-compose down -v -t 1
+	rm -f coverage.out coverage.html
