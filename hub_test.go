@@ -247,23 +247,16 @@ func TestPublishAsyncFromAny(t *testing.T) {
 
 func TestWaitAsync(t *testing.T) {
 	var count uint32
-	fireCountChan := make(chan bool)
-
-	go func() {
-		for {
-			<-fireCountChan
-			atomic.AddUint32(&count, 1)
-			runtime.Gosched()
-		}
-	}()
 
 	Reset().Subscribe("topic", func(b bool) error {
-		fireCountChan <- b
+		atomic.AddUint32(&count, 1)
+		runtime.Gosched()
 		return nil
 	})
 
 	Get().Subscribe("errors", func(err error) error {
-		fireCountChan <- true
+		atomic.AddUint32(&count, 1)
+		runtime.Gosched()
 		return err
 	})
 
