@@ -7,19 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [v3.0.0]
 
-A rewrite. The module path becomes `github.com/efureev/hubMessage/v3`; there is no migration
-path from v2, because every signature changed. `AUDIT-v3.md` records the defects that
-motivated it, each reproduced by a probe, and the reasoning behind the current design.
+A rewrite. There is no migration path from v2, because every signature changed.
+`AUDIT-v3.md` records the defects that motivated it, each reproduced by a probe, and the
+reasoning behind the current design.
 
 ### Changed — breaking
 
-- **Topics are typed values.** `hub.NewTopic[T](name)` returns an exported `Topic[T]` keyed by
+- **The project is renamed to `msghub`.** The repository, the module and the package now
+  share one name:
+
+  ```go
+  import "github.com/efureev/msghub/v3"
+  ```
+
+  `hubMessage` had a capital letter in the middle of a module path, which the toolchain
+  escapes (`hub!message` in the module cache) and which makes the path case-sensitive on the
+  proxy but not on macOS. It also read backwards — "message hub" is the phrase — and did not
+  match the package name `hub`, so every import wanted an alias. One lowercase word fixes all
+  three; the alias is gone.
+
+  `v2` keeps its original path, `github.com/efureev/hubMessage/v2`: its tags were published
+  under the old repository name and stay resolvable there.
+
+- **Topics are typed values.** `msghub.NewTopic[T](name)` returns an exported `Topic[T]` keyed by
   name *and* payload type. In v2 `topic` was an unexported string type appearing in exported
   signatures, so an outside caller could pass a string literal but not a variable: computing a
   topic name at run time did not compile. The package-level `Sub`/`Event` helpers existed only
   to work around this, and only for the singleton.
 
-  A name with two payload types is two independent streams. `hub.TypeTopic[T]()` keys by the
+  A name with two payload types is two independent streams. `msghub.TypeTopic[T]()` keys by the
   type alone.
 
 - **Handlers are typed and take a context**: `func(ctx context.Context, ev T) error` instead
@@ -43,7 +59,7 @@ motivated it, each reproduced by a probe, and the reasoning behind the current d
 
 - **The global singleton is gone**: `Get`, `Sub`, `Event` and `Reset` are not carried over.
   Global mutable state in a library is imposed on every consumer and makes tests order
-  dependent. An application that wants one writes `var Bus = hub.New()`.
+  dependent. An application that wants one writes `var Bus = msghub.New()`.
 
 - **The `appmod` dependency is gone.** The bus no longer embeds `appmod.AppModule`, so its
   public API is not hostage to another module's major version, and importing the bus no longer
@@ -75,7 +91,7 @@ motivated it, each reproduced by a probe, and the reasoning behind the current d
 
 ### Fixed
 
-Each of these is covered by a regression test in `hub_test.go`:
+Each of these is covered by a regression test in `msghub_test.go`:
 
 - A handler publishing to its own topic no longer deadlocks.
 - A busy subscriber no longer blocks the publisher within the queue depth.
@@ -86,7 +102,7 @@ Each of these is covered by a regression test in `hub_test.go`:
 
 ### Internal
 
-- The test suite gained a black-box `hub_test` package. v2's tests all lived inside the
+- The test suite gained a black-box `msghub_test` package. v2's tests all lived inside the
   package, where the unexported topic type was nameable, so 97% coverage said nothing about
   whether an outside caller could compile a call at all.
 - Concurrency tests use `testing/synctest`, replacing timeout-based waits that were sensitive

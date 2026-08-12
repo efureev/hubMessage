@@ -1,4 +1,4 @@
-package hub
+package msghub
 
 import "reflect"
 
@@ -56,7 +56,7 @@ func (t Topic[T]) Name() string { return t.key.name }
 // the bare type when the topic has no name.
 func (t Topic[T]) String() string {
 	if t.key.typ == nil {
-		return "hub.Topic(invalid)"
+		return "msghub.Topic(invalid)"
 	}
 
 	return t.key.String()

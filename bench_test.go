@@ -1,4 +1,4 @@
-package hub_test
+package msghub_test
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"testing"
 
-	hub "github.com/efureev/hubMessage/v3"
+	"github.com/efureev/msghub/v3"
 )
 
 type benchEvent struct {
@@ -14,13 +14,13 @@ type benchEvent struct {
 	N  int
 }
 
-var benchTopic = hub.NewTopic[benchEvent]("bench")
+var benchTopic = msghub.NewTopic[benchEvent]("bench")
 
-func benchHub(tb testing.TB, opts ...hub.Option) *hub.Hub {
+func benchHub(tb testing.TB, opts ...msghub.Option) *msghub.Hub {
 	tb.Helper()
 
-	base := []hub.Option{hub.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))}
-	h := hub.New(append(base, opts...)...)
+	base := []msghub.Option{msghub.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))}
+	h := msghub.New(append(base, opts...)...)
 	tb.Cleanup(func() { _ = h.Close(context.Background()) })
 
 	return h
@@ -29,10 +29,10 @@ func benchHub(tb testing.TB, opts ...hub.Option) *hub.Hub {
 // The asynchronous path: hand the event to a queue and return. The queue is
 // deep enough that the benchmark measures the handoff rather than backpressure.
 func BenchmarkPublishAsync(b *testing.B) {
-	h := benchHub(b, hub.WithQueueSize(1024))
+	h := benchHub(b, msghub.WithQueueSize(1024))
 	ctx := context.Background()
 
-	sub, err := hub.Subscribe(h, benchTopic, func(context.Context, benchEvent) error { return nil })
+	sub, err := msghub.Subscribe(h, benchTopic, func(context.Context, benchEvent) error { return nil })
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func BenchmarkPublishAsync(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := hub.Publish(ctx, h, benchTopic, ev); err != nil {
+		if err := msghub.Publish(ctx, h, benchTopic, ev); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -55,8 +55,8 @@ func BenchmarkPublishSync(b *testing.B) {
 	h := benchHub(b)
 	ctx := context.Background()
 
-	sub, err := hub.Subscribe(h, benchTopic, func(context.Context, benchEvent) error { return nil },
-		hub.Synchronous())
+	sub, err := msghub.Subscribe(h, benchTopic, func(context.Context, benchEvent) error { return nil },
+		msghub.Synchronous())
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func BenchmarkPublishSync(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := hub.Publish(ctx, h, benchTopic, ev); err != nil {
+		if err := msghub.Publish(ctx, h, benchTopic, ev); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -79,8 +79,8 @@ func BenchmarkPublishSyncFanOut(b *testing.B) {
 	ctx := context.Background()
 
 	for range 8 {
-		sub, err := hub.Subscribe(h, benchTopic, func(context.Context, benchEvent) error { return nil },
-			hub.Synchronous())
+		sub, err := msghub.Subscribe(h, benchTopic, func(context.Context, benchEvent) error { return nil },
+			msghub.Synchronous())
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -91,7 +91,7 @@ func BenchmarkPublishSyncFanOut(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := hub.Publish(ctx, h, benchTopic, ev); err != nil {
+		if err := msghub.Publish(ctx, h, benchTopic, ev); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -106,17 +106,17 @@ func BenchmarkPublishNoSubscribers(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := hub.Publish(ctx, h, benchTopic, ev); err != nil {
+		if err := msghub.Publish(ctx, h, benchTopic, ev); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
 func BenchmarkPublishParallel(b *testing.B) {
-	h := benchHub(b, hub.WithQueueSize(4096))
+	h := benchHub(b, msghub.WithQueueSize(4096))
 	ctx := context.Background()
 
-	sub, err := hub.Subscribe(h, benchTopic, func(context.Context, benchEvent) error { return nil })
+	sub, err := msghub.Subscribe(h, benchTopic, func(context.Context, benchEvent) error { return nil })
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func BenchmarkPublishParallel(b *testing.B) {
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_ = hub.Publish(ctx, h, benchTopic, ev)
+			_ = msghub.Publish(ctx, h, benchTopic, ev)
 		}
 	})
 
@@ -139,8 +139,8 @@ func BenchmarkSubscribeClose(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		sub, err := hub.Subscribe(h, benchTopic, func(context.Context, benchEvent) error { return nil },
-			hub.Synchronous())
+		sub, err := msghub.Subscribe(h, benchTopic, func(context.Context, benchEvent) error { return nil },
+			msghub.Synchronous())
 		if err != nil {
 			b.Fatal(err)
 		}

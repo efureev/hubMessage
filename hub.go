@@ -1,4 +1,4 @@
-package hub
+package msghub
 
 import (
 	"context"

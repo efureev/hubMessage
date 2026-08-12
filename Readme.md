@@ -1,11 +1,11 @@
-# hubMessage
+# msghub
 
-[![Test](https://github.com/efureev/hubMessage/actions/workflows/test.yml/badge.svg)](https://github.com/efureev/hubMessage/actions/workflows/test.yml)
-[![Codacy Badge](https://api.codacy.com/project/badge/Grade/0cdced379f3e41d39732a720263c8393)](https://app.codacy.com/app/efureev/hubMessage?utm_source=github.com&utm_medium=referral&utm_content=efureev/hubMessage&utm_campaign=Badge_Grade_Dashboard)
-[![Maintainability](https://api.codeclimate.com/v1/badges/82d6074b251f785f8c23/maintainability)](https://codeclimate.com/github/efureev/hubMessage/maintainability)
-[![Test Coverage](https://api.codeclimate.com/v1/badges/82d6074b251f785f8c23/test_coverage)](https://codeclimate.com/github/efureev/hubMessage/test_coverage)
-[![codecov](https://codecov.io/gh/efureev/hubMessage/branch/master/graph/badge.svg)](https://codecov.io/gh/efureev/hubMessage)
-[![Go Report Card](https://goreportcard.com/badge/github.com/efureev/hubMessage)](https://goreportcard.com/report/github.com/efureev/hubMessage)
+[![Test](https://github.com/efureev/msghub/actions/workflows/test.yml/badge.svg)](https://github.com/efureev/msghub/actions/workflows/test.yml)
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/0cdced379f3e41d39732a720263c8393)](https://app.codacy.com/app/efureev/msghub?utm_source=github.com&utm_medium=referral&utm_content=efureev/msghub&utm_campaign=Badge_Grade_Dashboard)
+[![Maintainability](https://api.codeclimate.com/v1/badges/82d6074b251f785f8c23/maintainability)](https://codeclimate.com/github/efureev/msghub/maintainability)
+[![Test Coverage](https://api.codeclimate.com/v1/badges/82d6074b251f785f8c23/test_coverage)](https://codeclimate.com/github/efureev/msghub/test_coverage)
+[![codecov](https://codecov.io/gh/efureev/msghub/branch/master/graph/badge.svg)](https://codecov.io/gh/efureev/msghub)
+[![Go Report Card](https://goreportcard.com/badge/github.com/efureev/msghub)](https://goreportcard.com/report/github.com/efureev/msghub)
 
 A typed, asynchronous, in-process event bus for Go: named topics, per-subscriber FIFO queues,
 explicit backpressure, zero dependencies.
@@ -13,7 +13,7 @@ explicit backpressure, zero dependencies.
 Events travel on topics that are ordinary values, carrying both a name and a payload type:
 
 ```go
-var UserCreated = hub.NewTopic[User]("user.created")
+var UserCreated = msghub.NewTopic[User]("user.created")
 ```
 
 The name lets a program address a stream it computes at run time — per tenant, per shard, per
@@ -43,10 +43,11 @@ with arguments it does not accept.
 ### Install
 
 ```bash
-go get -u github.com/efureev/hubMessage/v3
+go get -u github.com/efureev/msghub/v3
 ```
 
-> The module path is `github.com/efureev/hubMessage/v3`, the package name is `hub`.
+> The repository, the module and the package all carry the same name: import
+> `github.com/efureev/msghub/v3` and call it `msghub`. No alias needed.
 
 ## Quick start
 
@@ -57,7 +58,7 @@ import (
 	"context"
 	"fmt"
 
-	hub "github.com/efureev/hubMessage/v3"
+	"github.com/efureev/msghub/v3"
 )
 
 type OrderPlaced struct {
@@ -65,15 +66,15 @@ type OrderPlaced struct {
 	Total int
 }
 
-var OrdersPlaced = hub.NewTopic[OrderPlaced]("orders.placed")
+var OrdersPlaced = msghub.NewTopic[OrderPlaced]("orders.placed")
 
 func main() {
 	ctx := context.Background()
 
-	h := hub.New()
+	h := msghub.New()
 	defer func() { _ = h.Close(ctx) }()
 
-	sub, err := hub.Subscribe(h, OrdersPlaced, func(_ context.Context, ev OrderPlaced) error {
+	sub, err := msghub.Subscribe(h, OrdersPlaced, func(_ context.Context, ev OrderPlaced) error {
 		fmt.Printf("order %s for %d\n", ev.ID, ev.Total)
 
 		return nil
@@ -83,7 +84,7 @@ func main() {
 	}
 	defer sub.Close()
 
-	if err := hub.Publish(ctx, h, OrdersPlaced, OrderPlaced{ID: "A-1", Total: 250}); err != nil {
+	if err := msghub.Publish(ctx, h, OrdersPlaced, OrderPlaced{ID: "A-1", Total: 250}); err != nil {
 		panic(err)
 	}
 
@@ -99,21 +100,21 @@ methods: a type parameter cannot appear on a method. The hub is the first argume
 
 ## API overview
 
-| Function / Method                                             | Description                                                             |
-|---------------------------------------------------------------|-------------------------------------------------------------------------|
-| `hub.NewTopic[T](name string) Topic[T]`                       | Build a topic keyed by name **and** payload type.                        |
-| `hub.TypeTopic[T]() Topic[T]`                                 | Build a topic keyed by the payload type alone.                           |
-| `(t Topic[T]) Name() string`                                  | The topic name; empty for a `TypeTopic`.                                 |
-| `(t Topic[T]) String() string`                                | `name[type]`, or the bare type when unnamed.                             |
-| `hub.New(opts ...Option) *Hub`                                | Create a hub.                                                            |
-| `hub.Subscribe[T](h, t, fn, opts...) (Subscription, error)`   | Register a handler and get a handle that removes it.                     |
-| `hub.Publish[T](ctx, h, t, ev) error`                         | Deliver `ev` to every subscriber of the topic.                           |
-| `(h *Hub) Drain(ctx) error`                                   | Block until every accepted event has been handled.                       |
-| `(h *Hub) Close(ctx) error`                                   | Stop every subscriber goroutine and reject further use. Idempotent.      |
-| `(h *Hub) Topics() []string`                                  | Sorted identifiers of topics that currently have subscribers.            |
-| `(h *Hub) Snapshot() Stats`                                   | Published / delivered / dropped / panicked / failed counters.            |
-| `(s Subscription) Close()`                                    | Remove the handler. Idempotent, safe from inside the handler.            |
-| `(s Subscription) Topic() string`                             | The topic this subscription listens on.                                  |
+| Function / Method                                              | Description                                                         |
+|----------------------------------------------------------------|---------------------------------------------------------------------|
+| `msghub.NewTopic[T](name string) Topic[T]`                     | Build a topic keyed by name **and** payload type.                   |
+| `msghub.TypeTopic[T]() Topic[T]`                               | Build a topic keyed by the payload type alone.                      |
+| `(t Topic[T]) Name() string`                                   | The topic name; empty for a `TypeTopic`.                            |
+| `(t Topic[T]) String() string`                                 | `name[type]`, or the bare type when unnamed.                        |
+| `msghub.New(opts ...Option) *Hub`                              | Create a hub.                                                       |
+| `msghub.Subscribe[T](h, t, fn, opts...) (Subscription, error)` | Register a handler and get a handle that removes it.                |
+| `msghub.Publish[T](ctx, h, t, ev) error`                       | Deliver `ev` to every subscriber of the topic.                      |
+| `(h *Hub) Drain(ctx) error`                                    | Block until every accepted event has been handled.                  |
+| `(h *Hub) Close(ctx) error`                                    | Stop every subscriber goroutine and reject further use. Idempotent. |
+| `(h *Hub) Topics() []string`                                   | Sorted identifiers of topics that currently have subscribers.       |
+| `(h *Hub) Snapshot() Stats`                                    | Published / delivered / dropped / panicked / failed counters.       |
+| `(s Subscription) Close()`                                     | Remove the handler. Idempotent, safe from inside the handler.       |
+| `(s Subscription) Topic() string`                              | The topic this subscription listens on.                             |
 
 ### Hub options
 
@@ -161,11 +162,11 @@ silently absorbed. There is no policy that is right for every stream, so the hub
 | `Fail`       | Return `ErrQueueFull`, deliver nothing.       | The caller decides what to do.                 |
 
 ```go
-h := hub.New(hub.WithQueueSize(1024), hub.WithOverflow(hub.DropOldest))
+h := msghub.New(msghub.WithQueueSize(1024), msghub.WithOverflow(msghub.DropOldest))
 
 // ...but this one must not lose anything, however slow it gets.
-sub, err := hub.Subscribe(h, Audit, writeAuditLog,
-	hub.WithSubOverflow(hub.Block), hub.WithSubQueueSize(64))
+sub, err := msghub.Subscribe(h, Audit, writeAuditLog,
+	msghub.WithSubOverflow(msghub.Block), msghub.WithSubQueueSize(64))
 ```
 
 ## Failure handling
@@ -173,17 +174,17 @@ sub, err := hub.Subscribe(h, Audit, writeAuditLog,
 A handler that returns an error or panics is never silently dropped:
 
 ```go
-h := hub.New(hub.WithErrorHandler(func(ctx context.Context, topic string, err error) {
+h := msghub.New(msghub.WithErrorHandler(func(ctx context.Context, topic string, err error) {
 	metrics.HandlerFailures.WithLabelValues(topic).Inc()
 
-	var pe *hub.PanicError
+	var pe *msghub.PanicError
 	if errors.As(err, &pe) {
 		log.Printf("%s panicked with %#v\n%s", pe.Topic, pe.Value, pe.Stack)
 	}
 }))
 ```
 
-A panic is recovered and converted into a `*hub.PanicError` carrying the recovered value and
+A panic is recovered and converted into a `*msghub.PanicError` carrying the recovered value and
 the stack captured at the point of recovery — the only record of where it came from, since the
 goroutine that produced it does not survive. If the panic value is itself an `error`,
 `errors.Is` and `errors.As` reach through.
@@ -223,7 +224,7 @@ The package is flat; every file sits in the repository root.
 |--------------------|------------------------------------------------------------------|
 | `doc.go`           | Package overview and this file map.                              |
 | `topic.go`         | `Topic[T]`, `NewTopic`, `TypeTopic` and the internal topic key.  |
-| `hub.go`           | `Hub`, `New`, `Topics`, `Drain`, `Close`, in-flight accounting.  |
+| `msghub.go`           | `Hub`, `New`, `Topics`, `Drain`, `Close`, in-flight accounting.  |
 | `subscription.go`  | `Subscription`, `Subscribe` and the per-subscriber worker.       |
 | `publish.go`       | `Publish`, the `Overflow` policies and handler invocation.       |
 | `options.go`       | `Option`, `SubOption` and the `With*` constructors.              |

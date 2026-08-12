@@ -1,4 +1,4 @@
-package hub
+package msghub
 
 import (
 	"errors"
@@ -30,7 +30,7 @@ var (
 // The recovered value is kept as-is, so a handler that panics with a typed
 // value can be examined:
 //
-//	var pe *hub.PanicError
+//	var pe *msghub.PanicError
 //	if errors.As(err, &pe) {
 //	    log.Printf("%s panicked with %#v\n%s", pe.Topic, pe.Value, pe.Stack)
 //	}

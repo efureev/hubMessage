@@ -1,9 +1,9 @@
-// Package hub is a typed, asynchronous, in-process publish/subscribe bus.
+// Package msghub is a typed, asynchronous, in-process publish/subscribe bus.
 //
 // Events travel on named, typed topics. A [Topic] is an ordinary value built
 // from a plain string and a type parameter:
 //
-//	var UserCreated = hub.NewTopic[User]("user.created")
+//	var UserCreated = msghub.NewTopic[User]("user.created")
 //
 // Both halves of the key matter. The name lets a program address a stream it
 // computes at run time; the type makes the payload checked at compile time, so
@@ -55,4 +55,4 @@
 // The bus knows nothing about application lifecycles. To tie a hub and its
 // subscriptions to github.com/efureev/appmod modules, use the adapter module
 // github.com/efureev/appmod/adapters/hubmod.
-package hub
+package msghub

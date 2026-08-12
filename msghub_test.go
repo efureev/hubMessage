@@ -5,7 +5,7 @@
 // nothing about whether an outside caller could even compile a call. Every test
 // here goes through the exported API only; a regression that breaks consumers
 // breaks this file.
-package hub_test
+package msghub_test
 
 import (
 	"context"
@@ -20,21 +20,21 @@ import (
 	"testing/synctest"
 	"time"
 
-	hub "github.com/efureev/hubMessage/v3"
+	"github.com/efureev/msghub/v3"
 )
 
 // UserCreated is an ordinary domain event, declared outside the package like a
 // consumer's would be.
 type UserCreated struct{ ID string }
 
-func quiet() hub.Option {
-	return hub.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
+func quiet() msghub.Option {
+	return msghub.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
-func newHub(t *testing.T, opts ...hub.Option) *hub.Hub {
+func newHub(t *testing.T, opts ...msghub.Option) *msghub.Hub {
 	t.Helper()
 
-	h := hub.New(append([]hub.Option{quiet()}, opts...)...)
+	h := msghub.New(append([]msghub.Option{quiet()}, opts...)...)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -51,11 +51,11 @@ func newHub(t *testing.T, opts ...hub.Option) *hub.Hub {
 
 func TestPublishSubscribe(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
-		topic := hub.NewTopic[UserCreated]("user.created")
+		h := msghub.New(quiet())
+		topic := msghub.NewTopic[UserCreated]("user.created")
 
 		var got UserCreated
-		sub, err := hub.Subscribe(h, topic, func(_ context.Context, ev UserCreated) error {
+		sub, err := msghub.Subscribe(h, topic, func(_ context.Context, ev UserCreated) error {
 			got = ev
 
 			return nil
@@ -65,7 +65,7 @@ func TestPublishSubscribe(t *testing.T) {
 		}
 		defer sub.Close()
 
-		if err := hub.Publish(t.Context(), h, topic, UserCreated{ID: "42"}); err != nil {
+		if err := msghub.Publish(t.Context(), h, topic, UserCreated{ID: "42"}); err != nil {
 			t.Fatal(err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -83,16 +83,16 @@ func TestPublishSubscribe(t *testing.T) {
 // was unexported, so only string literals worked.
 func TestTopicNameComputedAtRunTime(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
+		h := msghub.New(quiet())
 
 		var mu sync.Mutex
 		seen := map[string]int{}
 
 		for i := range 3 {
 			name := fmt.Sprintf("job.%d", i) // a variable, not a literal
-			topic := hub.NewTopic[int](name)
+			topic := msghub.NewTopic[int](name)
 
-			sub, err := hub.Subscribe(h, topic, func(_ context.Context, v int) error {
+			sub, err := msghub.Subscribe(h, topic, func(_ context.Context, v int) error {
 				mu.Lock()
 				defer mu.Unlock()
 				seen[name] = v
@@ -104,7 +104,7 @@ func TestTopicNameComputedAtRunTime(t *testing.T) {
 			}
 			defer sub.Close()
 
-			if err := hub.Publish(t.Context(), h, topic, i*10); err != nil {
+			if err := msghub.Publish(t.Context(), h, topic, i*10); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -127,24 +127,24 @@ func TestTopicNameComputedAtRunTime(t *testing.T) {
 // The same name with two payload types is two streams, not a collision.
 func TestNameAndTypeTogetherKeyTheTopic(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
+		h := msghub.New(quiet())
 
-		ints := hub.NewTopic[int]("x")
-		strs := hub.NewTopic[string]("x")
+		ints := msghub.NewTopic[int]("x")
+		strs := msghub.NewTopic[string]("x")
 
 		var gotInt, gotStr atomic.Int32
-		si, err := hub.Subscribe(h, ints, func(context.Context, int) error { gotInt.Add(1); return nil })
+		si, err := msghub.Subscribe(h, ints, func(context.Context, int) error { gotInt.Add(1); return nil })
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer si.Close()
-		ss, err := hub.Subscribe(h, strs, func(context.Context, string) error { gotStr.Add(1); return nil })
+		ss, err := msghub.Subscribe(h, strs, func(context.Context, string) error { gotStr.Add(1); return nil })
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer ss.Close()
 
-		if err := hub.Publish(t.Context(), h, ints, 1); err != nil {
+		if err := msghub.Publish(t.Context(), h, ints, 1); err != nil {
 			t.Fatal(err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -159,11 +159,11 @@ func TestNameAndTypeTogetherKeyTheTopic(t *testing.T) {
 
 func TestTypeTopic(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
-		topic := hub.TypeTopic[UserCreated]()
+		h := msghub.New(quiet())
+		topic := msghub.TypeTopic[UserCreated]()
 
 		var got atomic.Int32
-		sub, err := hub.Subscribe(h, topic, func(context.Context, UserCreated) error {
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, UserCreated) error {
 			got.Add(1)
 
 			return nil
@@ -173,7 +173,7 @@ func TestTypeTopic(t *testing.T) {
 		}
 		defer sub.Close()
 
-		if err := hub.Publish(t.Context(), h, topic, UserCreated{ID: "1"}); err != nil {
+		if err := msghub.Publish(t.Context(), h, topic, UserCreated{ID: "1"}); err != nil {
 			t.Fatal(err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -192,10 +192,10 @@ func TestTypeTopic(t *testing.T) {
 func TestPublishWithoutSubscribers(t *testing.T) {
 	h := newHub(t)
 
-	if err := hub.Publish(t.Context(), h, hub.NewTopic[int]("nobody"), 1); err != nil {
+	if err := msghub.Publish(t.Context(), h, msghub.NewTopic[int]("nobody"), 1); err != nil {
 		t.Fatalf("publish to an empty topic = %v, want nil", err)
 	}
-	if got := h.Snapshot(); got != (hub.Stats{}) {
+	if got := h.Snapshot(); got != (msghub.Stats{}) {
 		t.Fatalf("counters moved on an unheard publish: %+v", got)
 	}
 }
@@ -203,11 +203,11 @@ func TestPublishWithoutSubscribers(t *testing.T) {
 func TestTopicsListsSubscribedTopics(t *testing.T) {
 	h := newHub(t)
 
-	subA, err := hub.Subscribe(h, hub.NewTopic[int]("b"), func(context.Context, int) error { return nil })
+	subA, err := msghub.Subscribe(h, msghub.NewTopic[int]("b"), func(context.Context, int) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
-	subB, err := hub.Subscribe(h, hub.TypeTopic[UserCreated](), func(context.Context, UserCreated) error { return nil })
+	subB, err := msghub.Subscribe(h, msghub.TypeTopic[UserCreated](), func(context.Context, UserCreated) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,15 +241,15 @@ func TestTopicsListsSubscribedTopics(t *testing.T) {
 // a rendezvous and the only receiver was the handler itself.
 func TestHandlerCanPublishToItsOwnTopic(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
-		topic := hub.NewTopic[int]("recursive")
+		h := msghub.New(quiet())
+		topic := msghub.NewTopic[int]("recursive")
 
 		var depth atomic.Int32
-		sub, err := hub.Subscribe(h, topic, func(ctx context.Context, v int) error {
+		sub, err := msghub.Subscribe(h, topic, func(ctx context.Context, v int) error {
 			if v < 3 {
 				depth.Store(int32(v) + 1)
 
-				return hub.Publish(ctx, h, topic, v+1)
+				return msghub.Publish(ctx, h, topic, v+1)
 			}
 
 			return nil
@@ -259,7 +259,7 @@ func TestHandlerCanPublishToItsOwnTopic(t *testing.T) {
 		}
 		defer sub.Close()
 
-		if err := hub.Publish(t.Context(), h, topic, 0); err != nil {
+		if err := msghub.Publish(t.Context(), h, topic, 0); err != nil {
 			t.Fatal(err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -276,11 +276,11 @@ func TestHandlerCanPublishToItsOwnTopic(t *testing.T) {
 // while the Readme promised it never blocked the producer.
 func TestPublisherIsNotBlockedWithinQueueDepth(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet(), hub.WithQueueSize(16))
-		topic := hub.NewTopic[int]("slow")
+		h := msghub.New(quiet(), msghub.WithQueueSize(16))
+		topic := msghub.NewTopic[int]("slow")
 
 		release := make(chan struct{})
-		sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 			<-release
 
 			return nil
@@ -294,7 +294,7 @@ func TestPublisherIsNotBlockedWithinQueueDepth(t *testing.T) {
 		go func() {
 			defer close(published)
 			for i := range 10 {
-				_ = hub.Publish(context.Background(), h, topic, i)
+				_ = msghub.Publish(context.Background(), h, topic, i)
 			}
 		}()
 
@@ -320,16 +320,16 @@ func TestPublisherIsNotBlockedWithinQueueDepth(t *testing.T) {
 // different receivers was indistinguishable and closing one closed both.
 func TestSubscriptionsAreIndependentOfTheHandlerValue(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet())
+		topic := msghub.NewTopic[int]("t")
 
 		a, b := &counterService{}, &counterService{}
 
-		subA, err := hub.Subscribe(h, topic, a.OnEvent)
+		subA, err := msghub.Subscribe(h, topic, a.OnEvent)
 		if err != nil {
 			t.Fatal(err)
 		}
-		subB, err := hub.Subscribe(h, topic, b.OnEvent)
+		subB, err := msghub.Subscribe(h, topic, b.OnEvent)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -337,7 +337,7 @@ func TestSubscriptionsAreIndependentOfTheHandlerValue(t *testing.T) {
 
 		subA.Close()
 
-		if err := hub.Publish(t.Context(), h, topic, 1); err != nil {
+		if err := msghub.Publish(t.Context(), h, topic, 1); err != nil {
 			t.Fatal(err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -365,17 +365,17 @@ func (s *counterService) OnEvent(context.Context, int) error {
 // one leaves the other. v2 removed both.
 func TestSameFunctionSubscribedTwice(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet())
+		topic := msghub.NewTopic[int]("t")
 
 		var n atomic.Int32
 		fn := func(context.Context, int) error { n.Add(1); return nil }
 
-		s1, err := hub.Subscribe(h, topic, fn)
+		s1, err := msghub.Subscribe(h, topic, fn)
 		if err != nil {
 			t.Fatal(err)
 		}
-		s2, err := hub.Subscribe(h, topic, fn)
+		s2, err := msghub.Subscribe(h, topic, fn)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -383,7 +383,7 @@ func TestSameFunctionSubscribedTwice(t *testing.T) {
 
 		s1.Close()
 
-		if err := hub.Publish(t.Context(), h, topic, 1); err != nil {
+		if err := msghub.Publish(t.Context(), h, topic, 1); err != nil {
 			t.Fatal(err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -400,12 +400,12 @@ func TestSameFunctionSubscribedTwice(t *testing.T) {
 // the panic was swallowed — the event vanished. A nil error is now a value.
 func TestNilPayloadIsDelivered(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
-		topic := hub.NewTopic[error]("errors")
+		h := msghub.New(quiet())
+		topic := msghub.NewTopic[error]("errors")
 
 		var called atomic.Bool
 		var got error
-		sub, err := hub.Subscribe(h, topic, func(_ context.Context, e error) error {
+		sub, err := msghub.Subscribe(h, topic, func(_ context.Context, e error) error {
 			called.Store(true)
 			got = e
 
@@ -416,7 +416,7 @@ func TestNilPayloadIsDelivered(t *testing.T) {
 		}
 		defer sub.Close()
 
-		if err := hub.Publish(t.Context(), h, topic, nil); err != nil {
+		if err := msghub.Publish(t.Context(), h, topic, nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -437,10 +437,10 @@ func TestNilPayloadIsDelivered(t *testing.T) {
 func TestClosingTheLastSubscriberDropsTheTopic(t *testing.T) {
 	h := newHub(t)
 
-	subs := make([]hub.Subscription, 0, 100)
+	subs := make([]msghub.Subscription, 0, 100)
 	for i := range 100 {
-		topic := hub.NewTopic[int](fmt.Sprintf("job.%d", i))
-		s, err := hub.Subscribe(h, topic, func(context.Context, int) error { return nil })
+		topic := msghub.NewTopic[int](fmt.Sprintf("job.%d", i))
+		s, err := msghub.Subscribe(h, topic, func(context.Context, int) error { return nil })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -466,27 +466,27 @@ func TestHandlerFailuresAreReported(t *testing.T) {
 		var mu sync.Mutex
 		var seen []error
 
-		h := hub.New(quiet(), hub.WithErrorHandler(func(_ context.Context, _ string, err error) {
+		h := msghub.New(quiet(), msghub.WithErrorHandler(func(_ context.Context, _ string, err error) {
 			mu.Lock()
 			defer mu.Unlock()
 			seen = append(seen, err)
 		}))
 
-		topic := hub.NewTopic[int]("t")
+		topic := msghub.NewTopic[int]("t")
 		boom := errors.New("boom")
 
-		s1, err := hub.Subscribe(h, topic, func(context.Context, int) error { return boom })
+		s1, err := msghub.Subscribe(h, topic, func(context.Context, int) error { return boom })
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer s1.Close()
-		s2, err := hub.Subscribe(h, topic, func(context.Context, int) error { panic("kaboom") })
+		s2, err := msghub.Subscribe(h, topic, func(context.Context, int) error { panic("kaboom") })
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer s2.Close()
 
-		if err := hub.Publish(t.Context(), h, topic, 1); err != nil {
+		if err := msghub.Publish(t.Context(), h, topic, 1); err != nil {
 			t.Fatal(err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -503,7 +503,7 @@ func TestHandlerFailuresAreReported(t *testing.T) {
 			t.Error("the returned error was not reported")
 		}
 
-		var pe *hub.PanicError
+		var pe *msghub.PanicError
 		if !errors.As(errors.Join(seen...), &pe) {
 			t.Fatal("the panic was not reported as a PanicError")
 		}
@@ -524,17 +524,17 @@ func TestHandlerFailuresAreReported(t *testing.T) {
 func TestPanicErrorUnwrapsAnErrorValue(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		boom := errors.New("boom")
-		h := hub.New(quiet())
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet())
+		topic := msghub.NewTopic[int]("t")
 
-		sub, err := hub.Subscribe(h, topic, func(context.Context, int) error { panic(boom) },
-			hub.Synchronous())
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error { panic(boom) },
+			msghub.Synchronous())
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer sub.Close()
 
-		err = hub.Publish(t.Context(), h, topic, 1)
+		err = msghub.Publish(t.Context(), h, topic, 1)
 		if !errors.Is(err, boom) {
 			t.Fatalf("Publish = %v, want it to wrap boom", err)
 		}
@@ -545,17 +545,17 @@ func TestPanicErrorUnwrapsAnErrorValue(t *testing.T) {
 
 func TestSynchronousHandlerReturnsItsErrorToThePublisher(t *testing.T) {
 	h := newHub(t)
-	topic := hub.NewTopic[int]("t")
+	topic := msghub.NewTopic[int]("t")
 	boom := errors.New("boom")
 
-	sub, err := hub.Subscribe(h, topic, func(context.Context, int) error { return boom },
-		hub.Synchronous())
+	sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error { return boom },
+		msghub.Synchronous())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sub.Close()
 
-	if err := hub.Publish(t.Context(), h, topic, 1); !errors.Is(err, boom) {
+	if err := msghub.Publish(t.Context(), h, topic, 1); !errors.Is(err, boom) {
 		t.Fatalf("Publish = %v, want boom", err)
 	}
 }
@@ -564,24 +564,24 @@ func TestSynchronousHandlerReturnsItsErrorToThePublisher(t *testing.T) {
 // asynchronous one has not, and its error does not travel back.
 func TestSynchronousRunsInline(t *testing.T) {
 	h := newHub(t)
-	topic := hub.NewTopic[int]("t")
+	topic := msghub.NewTopic[int]("t")
 
 	var order []string
 	var mu sync.Mutex
 
-	sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+	sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 		mu.Lock()
 		defer mu.Unlock()
 		order = append(order, "handler")
 
 		return nil
-	}, hub.Synchronous())
+	}, msghub.Synchronous())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sub.Close()
 
-	if err := hub.Publish(t.Context(), h, topic, 1); err != nil {
+	if err := msghub.Publish(t.Context(), h, topic, 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -597,10 +597,10 @@ func TestSynchronousRunsInline(t *testing.T) {
 
 func TestAsynchronousErrorDoesNotReachThePublisher(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet())
+		topic := msghub.NewTopic[int]("t")
 
-		sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 			return errors.New("boom")
 		})
 		if err != nil {
@@ -608,7 +608,7 @@ func TestAsynchronousErrorDoesNotReachThePublisher(t *testing.T) {
 		}
 		defer sub.Close()
 
-		if err := hub.Publish(t.Context(), h, topic, 1); err != nil {
+		if err := msghub.Publish(t.Context(), h, topic, 1); err != nil {
 			t.Fatalf("Publish = %v, want nil", err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -623,13 +623,13 @@ func TestAsynchronousErrorDoesNotReachThePublisher(t *testing.T) {
 // Events reach one subscriber in publication order.
 func TestPerSubscriberOrdering(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet(), hub.WithQueueSize(128))
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet(), msghub.WithQueueSize(128))
+		topic := msghub.NewTopic[int]("t")
 
 		var mu sync.Mutex
 		var got []int
 
-		sub, err := hub.Subscribe(h, topic, func(_ context.Context, v int) error {
+		sub, err := msghub.Subscribe(h, topic, func(_ context.Context, v int) error {
 			mu.Lock()
 			defer mu.Unlock()
 			got = append(got, v)
@@ -642,7 +642,7 @@ func TestPerSubscriberOrdering(t *testing.T) {
 		defer sub.Close()
 
 		for i := range 50 {
-			if err := hub.Publish(t.Context(), h, topic, i); err != nil {
+			if err := msghub.Publish(t.Context(), h, topic, i); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -667,11 +667,11 @@ func TestPerSubscriberOrdering(t *testing.T) {
 
 func TestOverflowDropNewest(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet(), hub.WithQueueSize(2), hub.WithOverflow(hub.DropNewest))
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet(), msghub.WithQueueSize(2), msghub.WithOverflow(msghub.DropNewest))
+		topic := msghub.NewTopic[int]("t")
 
 		release := make(chan struct{})
-		sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 			<-release
 
 			return nil
@@ -682,7 +682,7 @@ func TestOverflowDropNewest(t *testing.T) {
 		defer sub.Close()
 
 		for i := range 20 {
-			if err := hub.Publish(t.Context(), h, topic, i); err != nil {
+			if err := msghub.Publish(t.Context(), h, topic, i); err != nil {
 				t.Fatalf("DropNewest returned %v, want nil", err)
 			}
 		}
@@ -704,14 +704,14 @@ func TestOverflowDropNewest(t *testing.T) {
 
 func TestOverflowDropOldestKeepsTheLatest(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet(), hub.WithQueueSize(2), hub.WithOverflow(hub.DropOldest))
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet(), msghub.WithQueueSize(2), msghub.WithOverflow(msghub.DropOldest))
+		topic := msghub.NewTopic[int]("t")
 
 		release := make(chan struct{})
 		var mu sync.Mutex
 		var got []int
 
-		sub, err := hub.Subscribe(h, topic, func(_ context.Context, v int) error {
+		sub, err := msghub.Subscribe(h, topic, func(_ context.Context, v int) error {
 			<-release
 			mu.Lock()
 			defer mu.Unlock()
@@ -725,7 +725,7 @@ func TestOverflowDropOldestKeepsTheLatest(t *testing.T) {
 		defer sub.Close()
 
 		for i := range 20 {
-			if err := hub.Publish(t.Context(), h, topic, i); err != nil {
+			if err := msghub.Publish(t.Context(), h, topic, i); err != nil {
 				t.Fatalf("DropOldest returned %v, want nil", err)
 			}
 		}
@@ -750,11 +750,11 @@ func TestOverflowDropOldestKeepsTheLatest(t *testing.T) {
 
 func TestOverflowFail(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet(), hub.WithQueueSize(1), hub.WithOverflow(hub.Fail))
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet(), msghub.WithQueueSize(1), msghub.WithOverflow(msghub.Fail))
+		topic := msghub.NewTopic[int]("t")
 
 		release := make(chan struct{})
-		sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 			<-release
 
 			return nil
@@ -766,8 +766,8 @@ func TestOverflowFail(t *testing.T) {
 
 		var failures int
 		for i := range 10 {
-			if err := hub.Publish(t.Context(), h, topic, i); err != nil {
-				if !errors.Is(err, hub.ErrQueueFull) {
+			if err := msghub.Publish(t.Context(), h, topic, i); err != nil {
+				if !errors.Is(err, msghub.ErrQueueFull) {
 					t.Fatalf("Publish = %v, want ErrQueueFull", err)
 				}
 				failures++
@@ -789,11 +789,11 @@ func TestOverflowFail(t *testing.T) {
 // context gives it a way out.
 func TestOverflowBlockHonoursThePublishContext(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet(), hub.WithQueueSize(1))
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet(), msghub.WithQueueSize(1))
+		topic := msghub.NewTopic[int]("t")
 
 		release := make(chan struct{})
-		sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 			<-release
 
 			return nil
@@ -808,7 +808,7 @@ func TestOverflowBlockHonoursThePublishContext(t *testing.T) {
 
 		var err2 error
 		for range 10 {
-			if err2 = hub.Publish(ctx, h, topic, 1); err2 != nil {
+			if err2 = msghub.Publish(ctx, h, topic, 1); err2 != nil {
 				break
 			}
 		}
@@ -824,15 +824,15 @@ func TestOverflowBlockHonoursThePublishContext(t *testing.T) {
 // A per-subscription policy overrides the hub default.
 func TestPerSubscriptionOverrides(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet(), hub.WithQueueSize(64), hub.WithOverflow(hub.Block))
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet(), msghub.WithQueueSize(64), msghub.WithOverflow(msghub.Block))
+		topic := msghub.NewTopic[int]("t")
 
 		release := make(chan struct{})
-		sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 			<-release
 
 			return nil
-		}, hub.WithSubQueueSize(1), hub.WithSubOverflow(hub.Fail))
+		}, msghub.WithSubQueueSize(1), msghub.WithSubOverflow(msghub.Fail))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -840,7 +840,7 @@ func TestPerSubscriptionOverrides(t *testing.T) {
 
 		var sawFull bool
 		for range 10 {
-			if err := hub.Publish(t.Context(), h, topic, 1); errors.Is(err, hub.ErrQueueFull) {
+			if err := msghub.Publish(t.Context(), h, topic, 1); errors.Is(err, msghub.ErrQueueFull) {
 				sawFull = true
 
 				break
@@ -859,11 +859,11 @@ func TestPerSubscriptionOverrides(t *testing.T) {
 
 func TestDrainReportsADeadlineInsteadOfHanging(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet())
+		topic := msghub.NewTopic[int]("t")
 
 		release := make(chan struct{})
-		sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 			<-release
 
 			return nil
@@ -873,7 +873,7 @@ func TestDrainReportsADeadlineInsteadOfHanging(t *testing.T) {
 		}
 		defer sub.Close()
 
-		if err := hub.Publish(t.Context(), h, topic, 1); err != nil {
+		if err := msghub.Publish(t.Context(), h, topic, 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -893,11 +893,11 @@ func TestDrainReportsADeadlineInsteadOfHanging(t *testing.T) {
 
 func TestCloseIsIdempotentAndRejectsFurtherUse(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet())
+		topic := msghub.NewTopic[int]("t")
 
 		for range 20 {
-			if _, err := hub.Subscribe(h, topic, func(context.Context, int) error { return nil }); err != nil {
+			if _, err := msghub.Subscribe(h, topic, func(context.Context, int) error { return nil }); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -909,10 +909,10 @@ func TestCloseIsIdempotentAndRejectsFurtherUse(t *testing.T) {
 			t.Fatalf("second Close = %v, want nil", err)
 		}
 
-		if err := hub.Publish(t.Context(), h, topic, 1); !errors.Is(err, hub.ErrClosed) {
+		if err := msghub.Publish(t.Context(), h, topic, 1); !errors.Is(err, msghub.ErrClosed) {
 			t.Errorf("Publish after Close = %v, want ErrClosed", err)
 		}
-		if _, err := hub.Subscribe(h, topic, func(context.Context, int) error { return nil }); !errors.Is(err, hub.ErrClosed) {
+		if _, err := msghub.Subscribe(h, topic, func(context.Context, int) error { return nil }); !errors.Is(err, msghub.ErrClosed) {
 			t.Errorf("Subscribe after Close = %v, want ErrClosed", err)
 		}
 		if got := h.Topics(); len(got) != 0 {
@@ -924,11 +924,11 @@ func TestCloseIsIdempotentAndRejectsFurtherUse(t *testing.T) {
 // Close must not wait forever on events nobody will handle any more.
 func TestCloseAbandonsQueuedEvents(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet(), hub.WithQueueSize(32))
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet(), msghub.WithQueueSize(32))
+		topic := msghub.NewTopic[int]("t")
 
 		release := make(chan struct{})
-		if _, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+		if _, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 			<-release
 
 			return nil
@@ -937,7 +937,7 @@ func TestCloseAbandonsQueuedEvents(t *testing.T) {
 		}
 
 		for i := range 10 {
-			if err := hub.Publish(t.Context(), h, topic, i); err != nil {
+			if err := msghub.Publish(t.Context(), h, topic, i); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -955,12 +955,12 @@ func TestCloseAbandonsQueuedEvents(t *testing.T) {
 
 func TestCloseFromInsideAHandler(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet())
+		topic := msghub.NewTopic[int]("t")
 
-		var sub hub.Subscription
+		var sub msghub.Subscription
 		var err error
-		sub, err = hub.Subscribe(h, topic, func(context.Context, int) error {
+		sub, err = msghub.Subscribe(h, topic, func(context.Context, int) error {
 			sub.Close() // idempotent, and must not deadlock against the worker
 
 			return nil
@@ -969,7 +969,7 @@ func TestCloseFromInsideAHandler(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err := hub.Publish(t.Context(), h, topic, 1); err != nil {
+		if err := msghub.Publish(t.Context(), h, topic, 1); err != nil {
 			t.Fatal(err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -986,13 +986,13 @@ func TestCloseFromInsideAHandler(t *testing.T) {
 // is in flight; holding the lock across delivery would deadlock.
 func TestSubscribeFromInsideAHandler(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet())
-		first := hub.NewTopic[int]("first")
-		second := hub.NewTopic[int]("second")
+		h := msghub.New(quiet())
+		first := msghub.NewTopic[int]("first")
+		second := msghub.NewTopic[int]("second")
 
 		done := make(chan struct{})
-		sub, err := hub.Subscribe(h, first, func(context.Context, int) error {
-			s, err := hub.Subscribe(h, second, func(context.Context, int) error { return nil })
+		sub, err := msghub.Subscribe(h, first, func(context.Context, int) error {
+			s, err := msghub.Subscribe(h, second, func(context.Context, int) error { return nil })
 			if err != nil {
 				return err
 			}
@@ -1006,7 +1006,7 @@ func TestSubscribeFromInsideAHandler(t *testing.T) {
 		}
 		defer sub.Close()
 
-		if err := hub.Publish(t.Context(), h, first, 1); err != nil {
+		if err := msghub.Publish(t.Context(), h, first, 1); err != nil {
 			t.Fatal(err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -1025,22 +1025,22 @@ func TestSubscribeFromInsideAHandler(t *testing.T) {
 
 func TestNilAndZeroArguments(t *testing.T) {
 	h := newHub(t)
-	topic := hub.NewTopic[int]("t")
-	var zero hub.Topic[int]
+	topic := msghub.NewTopic[int]("t")
+	var zero msghub.Topic[int]
 
-	if _, err := hub.Subscribe(h, topic, nil); !errors.Is(err, hub.ErrNilHandler) {
+	if _, err := msghub.Subscribe(h, topic, nil); !errors.Is(err, msghub.ErrNilHandler) {
 		t.Errorf("Subscribe(nil handler) = %v, want ErrNilHandler", err)
 	}
-	if _, err := hub.Subscribe[int](nil, topic, func(context.Context, int) error { return nil }); !errors.Is(err, hub.ErrNilHub) {
+	if _, err := msghub.Subscribe[int](nil, topic, func(context.Context, int) error { return nil }); !errors.Is(err, msghub.ErrNilHub) {
 		t.Errorf("Subscribe(nil hub) = %v, want ErrNilHub", err)
 	}
-	if err := hub.Publish[int](t.Context(), nil, topic, 1); !errors.Is(err, hub.ErrNilHub) {
+	if err := msghub.Publish[int](t.Context(), nil, topic, 1); !errors.Is(err, msghub.ErrNilHub) {
 		t.Errorf("Publish(nil hub) = %v, want ErrNilHub", err)
 	}
-	if _, err := hub.Subscribe(h, zero, func(context.Context, int) error { return nil }); !errors.Is(err, hub.ErrInvalidTopic) {
+	if _, err := msghub.Subscribe(h, zero, func(context.Context, int) error { return nil }); !errors.Is(err, msghub.ErrInvalidTopic) {
 		t.Errorf("Subscribe(zero topic) = %v, want ErrInvalidTopic", err)
 	}
-	if err := hub.Publish(t.Context(), h, zero, 1); !errors.Is(err, hub.ErrInvalidTopic) {
+	if err := msghub.Publish(t.Context(), h, zero, 1); !errors.Is(err, msghub.ErrInvalidTopic) {
 		t.Errorf("Publish(zero topic) = %v, want ErrInvalidTopic", err)
 	}
 }
@@ -1048,10 +1048,10 @@ func TestNilAndZeroArguments(t *testing.T) {
 // A hub with neither logger nor error handler still counts failures.
 func TestSilentHubStillCounts(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(hub.WithLogger(nil))
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(msghub.WithLogger(nil))
+		topic := msghub.NewTopic[int]("t")
 
-		sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 			return errors.New("boom")
 		})
 		if err != nil {
@@ -1059,7 +1059,7 @@ func TestSilentHubStillCounts(t *testing.T) {
 		}
 		defer sub.Close()
 
-		if err := hub.Publish(t.Context(), h, topic, 1); err != nil {
+		if err := msghub.Publish(t.Context(), h, topic, 1); err != nil {
 			t.Fatal(err)
 		}
 		if err := h.Drain(t.Context()); err != nil {
@@ -1075,11 +1075,11 @@ func TestSilentHubStillCounts(t *testing.T) {
 // A rendezvous queue is legal and delivers; it just makes Publish wait.
 func TestZeroQueueSize(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet(), hub.WithQueueSize(0))
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet(), msghub.WithQueueSize(0))
+		topic := msghub.NewTopic[int]("t")
 
 		var n atomic.Int32
-		sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 			n.Add(1)
 
 			return nil
@@ -1090,7 +1090,7 @@ func TestZeroQueueSize(t *testing.T) {
 		defer sub.Close()
 
 		for range 5 {
-			if err := hub.Publish(t.Context(), h, topic, 1); err != nil {
+			if err := msghub.Publish(t.Context(), h, topic, 1); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -1107,11 +1107,11 @@ func TestZeroQueueSize(t *testing.T) {
 // --------------------------------------------------------------- concurrency
 
 func TestConcurrentPublishSubscribeCloseDrain(t *testing.T) {
-	h := newHub(t, hub.WithQueueSize(512))
-	topic := hub.NewTopic[int]("t")
+	h := newHub(t, msghub.WithQueueSize(512))
+	topic := msghub.NewTopic[int]("t")
 
 	var delivered atomic.Int64
-	sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+	sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 		delivered.Add(1)
 
 		return nil
@@ -1130,7 +1130,7 @@ func TestConcurrentPublishSubscribeCloseDrain(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := range perPublisher {
-				if err := hub.Publish(context.Background(), h, topic, i); err != nil {
+				if err := msghub.Publish(context.Background(), h, topic, i); err != nil {
 					t.Errorf("Publish: %v", err)
 
 					return
@@ -1141,7 +1141,7 @@ func TestConcurrentPublishSubscribeCloseDrain(t *testing.T) {
 			defer wg.Done()
 			// Churn short-lived subscriptions against the same topic.
 			for range 20 {
-				s, err := hub.Subscribe(h, topic, func(context.Context, int) error { return nil })
+				s, err := msghub.Subscribe(h, topic, func(context.Context, int) error { return nil })
 				if err != nil {
 					t.Errorf("Subscribe: %v", err)
 
@@ -1166,10 +1166,10 @@ func TestConcurrentPublishSubscribeCloseDrain(t *testing.T) {
 }
 
 func TestConcurrentDrainers(t *testing.T) {
-	h := newHub(t, hub.WithQueueSize(256))
-	topic := hub.NewTopic[int]("t")
+	h := newHub(t, msghub.WithQueueSize(256))
+	topic := msghub.NewTopic[int]("t")
 
-	sub, err := hub.Subscribe(h, topic, func(context.Context, int) error { return nil })
+	sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1182,7 +1182,7 @@ func TestConcurrentDrainers(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := range 50 {
-				_ = hub.Publish(context.Background(), h, topic, i)
+				_ = msghub.Publish(context.Background(), h, topic, i)
 			}
 		}()
 		go func() {
@@ -1202,13 +1202,13 @@ func TestConcurrentDrainers(t *testing.T) {
 func TestSubscriptionTopic(t *testing.T) {
 	h := newHub(t)
 
-	named, err := hub.Subscribe(h, hub.NewTopic[int]("jobs"), func(context.Context, int) error { return nil })
+	named, err := msghub.Subscribe(h, msghub.NewTopic[int]("jobs"), func(context.Context, int) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer named.Close()
 
-	typed, err := hub.Subscribe(h, hub.TypeTopic[UserCreated](), func(context.Context, UserCreated) error { return nil })
+	typed, err := msghub.Subscribe(h, msghub.TypeTopic[UserCreated](), func(context.Context, UserCreated) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1226,9 +1226,9 @@ func TestSubscriptionTopic(t *testing.T) {
 // must both be no-ops rather than corrupting the topic map.
 func TestCloseSubscriptionTwice(t *testing.T) {
 	h := newHub(t)
-	topic := hub.NewTopic[int]("t")
+	topic := msghub.NewTopic[int]("t")
 
-	sub, err := hub.Subscribe(h, topic, func(context.Context, int) error { return nil })
+	sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1241,7 +1241,7 @@ func TestCloseSubscriptionTwice(t *testing.T) {
 	}
 
 	// A fresh subscription on the same topic must still work afterwards.
-	again, err := hub.Subscribe(h, topic, func(context.Context, int) error { return nil })
+	again, err := msghub.Subscribe(h, topic, func(context.Context, int) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1256,11 +1256,11 @@ func TestCloseSubscriptionTwice(t *testing.T) {
 // applies to itself: the event is dropped rather than blocking the publisher.
 func TestOverflowDropOldestWithoutBuffer(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := hub.New(quiet(), hub.WithQueueSize(0), hub.WithOverflow(hub.DropOldest))
-		topic := hub.NewTopic[int]("t")
+		h := msghub.New(quiet(), msghub.WithQueueSize(0), msghub.WithOverflow(msghub.DropOldest))
+		topic := msghub.NewTopic[int]("t")
 
 		release := make(chan struct{})
-		sub, err := hub.Subscribe(h, topic, func(context.Context, int) error {
+		sub, err := msghub.Subscribe(h, topic, func(context.Context, int) error {
 			<-release
 
 			return nil
@@ -1271,7 +1271,7 @@ func TestOverflowDropOldestWithoutBuffer(t *testing.T) {
 		defer sub.Close()
 
 		for i := range 5 {
-			if err := hub.Publish(t.Context(), h, topic, i); err != nil {
+			if err := msghub.Publish(t.Context(), h, topic, i); err != nil {
 				t.Fatalf("Publish = %v, want nil", err)
 			}
 		}
@@ -1290,8 +1290,8 @@ func TestOverflowDropOldestWithoutBuffer(t *testing.T) {
 // Publishing into a subscription that retires mid-flight is not the
 // publisher's failure and must not leave the event counted as in flight.
 func TestPublishRacesSubscriptionClose(t *testing.T) {
-	h := newHub(t, hub.WithQueueSize(4))
-	topic := hub.NewTopic[int]("t")
+	h := newHub(t, msghub.WithQueueSize(4))
+	topic := msghub.NewTopic[int]("t")
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -1299,7 +1299,7 @@ func TestPublishRacesSubscriptionClose(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 200 {
-			s, err := hub.Subscribe(h, topic, func(context.Context, int) error { return nil })
+			s, err := msghub.Subscribe(h, topic, func(context.Context, int) error { return nil })
 			if err != nil {
 				t.Errorf("Subscribe: %v", err)
 
@@ -1311,7 +1311,7 @@ func TestPublishRacesSubscriptionClose(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := range 200 {
-			if err := hub.Publish(context.Background(), h, topic, i); err != nil {
+			if err := msghub.Publish(context.Background(), h, topic, i); err != nil {
 				t.Errorf("Publish: %v", err)
 
 				return

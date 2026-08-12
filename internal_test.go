@@ -1,4 +1,4 @@
-package hub
+package msghub
 
 import (
 	"context"
@@ -140,7 +140,7 @@ func TestTopicKeyString(t *testing.T) {
 	}
 
 	var zero Topic[int]
-	if got, want := zero.String(), "hub.Topic(invalid)"; got != want {
+	if got, want := zero.String(), "msghub.Topic(invalid)"; got != want {
 		t.Errorf("zero Topic String() = %q, want %q", got, want)
 	}
 	if zero.valid() {
