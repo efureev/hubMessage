@@ -15,3 +15,6 @@ coverage.html
 .idea
 .DS_Store
 .output.txt
+
+# Claude Code: shared config is committed, personal/machine-local overrides are not
+.claude/settings.local.json

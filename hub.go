@@ -2,308 +2,199 @@ package hub
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"reflect"
+	"log/slog"
+	"slices"
 	"sync"
-
-	"github.com/efureev/appmod"
 )
 
-// MessageHub implements publish/subscribe messaging paradigm
-type MessageHub interface {
-	appmod.AppModule
-
-	Publish(topicName topic, args ...interface{})
-	Close(topicName topic)
-	Subscribe(topicName topic, fn interface{}) error
-	Unsubscribe(topicName topic, fn interface{}) error
-	Topics() []topic
-	Topic(topicName topic) ([]*handler, error)
-	Wait()
-}
-
-type hub struct {
-	appmod.BaseAppModule
-
-	mtx sync.RWMutex
-
-	channels channelsMap
-
-	// pending tracks the number of in-flight messages. It is guarded by
-	// pendingMtx and signaled via pendingCond so that Wait() may be called
-	// concurrently with Publish() without the misuse restrictions of
-	// sync.WaitGroup (where Add must happen-before Wait on a zero counter).
-	pendingMtx  sync.Mutex
-	pendingCond *sync.Cond
-	pending     int
-}
-
-var (
-	instance    MessageHub
-	instanceMtx sync.Mutex
-)
-
-type topic string
-type channelsMap map[topic][]*handler
-
-type handler struct {
-	ctx      context.Context
-	callback reflect.Value
-	cancel   context.CancelFunc
-	queue    chan []reflect.Value
-}
-
-// Publish publishes arguments to the given topic subscribers.
+// Hub is a set of topics and the subscribers listening on them.
 //
-// A snapshot of the topic handlers is taken under the read lock, and the
-// actual (potentially blocking) delivery happens after the lock is released.
-// This prevents a slow subscriber from blocking concurrent Subscribe/Close
-// calls and avoids a deadlock when a handler subscribes/unsubscribes from
-// within its own callback.
-func (h *hub) Publish(topicName topic, args ...interface{}) {
-	rArgs := buildHandlerArgs(args)
+// The zero Hub is not usable; build one with [New]. A Hub is safe for
+// concurrent use by any number of goroutines.
+type Hub struct {
+	mu     sync.RWMutex
+	states map[topicKey]any // *topicState[T], one per (name, type)
+	closed bool
 
-	h.mtx.RLock()
-	hs := h.channels[topicName]
-	snapshot := make([]*handler, len(hs))
-	copy(snapshot, hs)
-	h.mtx.RUnlock()
+	opts options
 
-	for _, hndr := range snapshot {
-		h.addPending(1)
+	// inflight counts events that have been accepted but not yet handled, and
+	// backs Drain. workers counts running subscriber goroutines, and backs
+	// Close.
+	inflight *latch
+	workers  *latch
 
-		// Deliver, but bail out if the handler has been canceled
-		// (Unsubscribe/Close) so we neither block forever nor send on a
-		// goroutine that has already stopped.
-		select {
-		case hndr.queue <- rArgs:
-		case <-hndr.ctx.Done():
-			h.donePending()
-		}
-	}
+	stats counters
 }
 
-// Subscribe subscribes to the given topic
-func (h *hub) Subscribe(topicName topic, fn interface{}) error {
-	if fn == nil {
-		return errors.New("handler is nil")
-	}
-
-	rt := reflect.TypeOf(fn)
-	if rt.Kind() != reflect.Func {
-		return fmt.Errorf("%s is not a reflect.Func", rt)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	hndr := &handler{
-		callback: reflect.ValueOf(fn),
-		ctx:      ctx,
-		cancel:   cancel,
-		queue:    make(chan []reflect.Value),
-	}
-
-	go func() {
-		for {
-			select {
-			case args, ok := <-hndr.queue:
-				if !ok {
-					return
-				}
-				h.dispatch(hndr, args)
-			case <-hndr.ctx.Done():
-				return
-			}
-		}
-	}()
-
-	h.mtx.Lock()
-	defer h.mtx.Unlock()
-
-	h.channels[topicName] = append(h.channels[topicName], hndr)
-
-	return nil
-}
-
-// dispatch invokes the handler callback for a single message and signals
-// completion of the in-flight message. A panic inside the user callback is
-// recovered so it cannot leak the pending counter and block Wait() forever.
-func (h *hub) dispatch(hndr *handler, args []reflect.Value) {
-	defer h.donePending()
-	defer func() {
-		_ = recover()
-	}()
-
-	hndr.callback.Call(args)
-}
-
-// addPending increments the in-flight message counter.
-func (h *hub) addPending(n int) {
-	h.pendingMtx.Lock()
-	h.pending += n
-	h.pendingMtx.Unlock()
-}
-
-// donePending decrements the in-flight message counter and wakes up any
-// goroutine blocked in Wait() once the counter reaches zero.
-func (h *hub) donePending() {
-	h.pendingMtx.Lock()
-	h.pending--
-	if h.pending <= 0 {
-		h.pending = 0
-		h.pendingCond.Broadcast()
-	}
-	h.pendingMtx.Unlock()
-}
-
-// Unsubscribe unsubscribe handler from the given topic
-func (h *hub) Unsubscribe(topicName topic, fn interface{}) error {
-	rv := reflect.ValueOf(fn)
-	if rv.Kind() != reflect.Func {
-		return fmt.Errorf("%s is not a reflect.Func", rv.Type())
-	}
-
-	h.mtx.Lock()
-	defer h.mtx.Unlock()
-
-	handlers, ok := h.channels[topicName]
-	if !ok {
-		return fmt.Errorf("topic %s doesn't exist", topicName)
-	}
-
-	remaining := handlers[:0]
-	for _, ch := range handlers {
-		if ch.callback.Pointer() == rv.Pointer() {
-			ch.cancel()
-			continue
-		}
-		remaining = append(remaining, ch)
-	}
-	h.channels[topicName] = remaining
-
-	return nil
-}
-
-// Topics return topic list
-func (h *hub) Topics() (tt []topic) {
-	h.mtx.RLock()
-	defer h.mtx.RUnlock()
-
-	for t := range h.channels {
-		tt = append(tt, t)
-	}
-
-	return tt
-}
-
-// Topic return handlers array subscribe to this topic.
+// New creates a Hub.
 //
-// A defensive copy of the internal slice is returned so that callers cannot
-// observe (or mutate) the hub's internal state while it is being modified by
-// Subscribe/Unsubscribe/Close.
-func (h *hub) Topic(topicName topic) ([]*handler, error) {
-	h.mtx.RLock()
-	defer h.mtx.RUnlock()
-
-	if hs, ok := h.channels[topicName]; ok {
-		cp := make([]*handler, len(hs))
-		copy(cp, hs)
-		return cp, nil
+// Without options a hub queues 64 events per subscriber, blocks the publisher
+// when a queue is full, and reports handler failures to [slog.Default].
+func New(opts ...Option) *Hub {
+	o := options{
+		queueSize: DefaultQueueSize,
+		overflow:  Block,
+		logger:    slog.Default(),
+	}
+	for _, apply := range opts {
+		apply(&o)
 	}
 
-	return nil, fmt.Errorf("topic %s doesn't exist", topicName)
-}
-
-// Wait blocks until all in-flight messages have been delivered.
-func (h *hub) Wait() {
-	h.pendingMtx.Lock()
-	for h.pending > 0 {
-		h.pendingCond.Wait()
+	return &Hub{
+		states:   make(map[topicKey]any),
+		opts:     o,
+		inflight: newLatch(),
+		workers:  newLatch(),
 	}
-	h.pendingMtx.Unlock()
 }
 
-// Close unsubscribe all handlers from given topic
-func (h *hub) Close(topicName topic) {
-	h.mtx.Lock()
-	defer h.mtx.Unlock()
+// DefaultQueueSize is the per-subscriber queue depth used when [WithQueueSize]
+// and [WithSubQueueSize] are not given.
+const DefaultQueueSize = 64
 
-	if _, ok := h.channels[topicName]; ok {
-		for _, h := range h.channels[topicName] {
-			h.cancel()
+// Topics returns a sorted, human-readable identifier for every topic that
+// currently has at least one subscriber.
+//
+// The identifiers are for diagnostics — logs, tests, an admin endpoint. A
+// topic cannot be reconstructed from one, because a name alone does not carry
+// the payload type; keep the [Topic] value if you need to publish to it.
+func (h *Hub) Topics() []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	out := make([]string, 0, len(h.states))
+	for k := range h.states {
+		out = append(out, k.String())
+	}
+	slices.Sort(out)
+
+	return out
+}
+
+// Drain blocks until every accepted event has been handled, or ctx is done.
+//
+// It reports a moment at which nothing was outstanding, not a promise that
+// nothing will be published afterwards: a publisher running concurrently can
+// enqueue more work the instant Drain returns. Drain after the publishers have
+// stopped when you need the counters to add up.
+//
+// Draining a hub with a stuck handler ends in ctx.Err() rather than a hang,
+// which is the whole reason it takes a context.
+func (h *Hub) Drain(ctx context.Context) error { return h.inflight.wait(ctx) }
+
+// Close stops every subscriber goroutine and rejects further use: subsequent
+// [Publish] and [Subscribe] calls return [ErrClosed]. Close is idempotent.
+//
+// Queued events are abandoned, not delivered. Call [Hub.Drain] first when they
+// still matter. Close waits for handlers that are already running, so ctx
+// bounds how long a slow one may hold up the shutdown.
+func (h *Hub) Close(ctx context.Context) error {
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+
+		return nil
+	}
+	h.closed = true
+	states := make([]any, 0, len(h.states))
+	for _, st := range h.states {
+		states = append(states, st)
+	}
+	clear(h.states)
+	h.mu.Unlock()
+
+	for _, st := range states {
+		if c, ok := st.(closer); ok {
+			c.closeAll()
 		}
+	}
 
-		delete(h.channels, topicName)
+	return h.workers.wait(ctx)
+}
 
+// closer lets Close stop the subscribers of every topic without knowing their
+// payload types: topicState[T] is stored as an any, and this is the only
+// behavior Close needs from it.
+type closer interface{ closeAll() }
+
+// report hands a handler failure to the error handler and the logger. Both are
+// optional; a hub configured with neither counts the failure and moves on.
+func (h *Hub) report(ctx context.Context, topic string, err error) {
+	if h.opts.onError != nil {
+		h.opts.onError(ctx, topic, err)
+	}
+	if h.opts.logger != nil {
+		h.opts.logger.LogAttrs(ctx, slog.LevelError, "hub: handler failed",
+			slog.String("topic", topic),
+			slog.String("error", err.Error()),
+		)
+	}
+}
+
+// latch counts outstanding work and lets waiters block on it with a context.
+//
+// It is a sync.WaitGroup that can be selected on. WaitGroup.Wait cannot appear
+// in a select, and neither can sync.Cond.Wait, so a context-aware wait built on
+// either needs a helper goroutine per waiter — one that outlives a canceled
+// wait. A channel closed on the 0 transition avoids that: waiters select on it
+// directly and leave nothing behind when they give up.
+type latch struct {
+	mu   sync.Mutex
+	n    int64
+	idle chan struct{} // closed exactly while n == 0
+}
+
+func newLatch() *latch {
+	idle := make(chan struct{})
+	close(idle)
+
+	return &latch{idle: idle}
+}
+
+// add records n new units of outstanding work.
+func (l *latch) add(n int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.n == 0 {
+		// Leaving the idle state: waiters arriving from now on must block, so
+		// they need an open channel to block on.
+		l.idle = make(chan struct{})
+	}
+	l.n += n
+}
+
+// done records one unit of work as finished, waking every waiter once the
+// count reaches zero.
+func (l *latch) done() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.n == 0 {
+		// Unbalanced done. Every add is paired with exactly one done, so this
+		// is unreachable; returning keeps a future accounting slip from
+		// closing an already-closed channel and panicking in a goroutine the
+		// caller does not own.
 		return
 	}
-}
 
-// Destroy unsubscribes all handlers from every topic and stops their
-// goroutines. The topic list is snapshotted under the read lock to avoid a
-// data race with concurrent Publish/Subscribe calls.
-func (h *hub) Destroy() error {
-	h.mtx.RLock()
-	topics := make([]topic, 0, len(h.channels))
-	for t := range h.channels {
-		topics = append(topics, t)
+	l.n--
+	if l.n == 0 {
+		close(l.idle)
 	}
-	h.mtx.RUnlock()
+}
 
-	for _, t := range topics {
-		h.Close(t)
+// wait blocks until the count reaches zero or ctx is done.
+func (l *latch) wait(ctx context.Context) error {
+	l.mu.Lock()
+	idle := l.idle
+	l.mu.Unlock()
+
+	select {
+	case <-idle:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-
-	return nil
-}
-
-func buildHandlerArgs(args []interface{}) []reflect.Value {
-	reflectedArgs := make([]reflect.Value, 0)
-
-	for _, arg := range args {
-		reflectedArgs = append(reflectedArgs, reflect.ValueOf(arg))
-	}
-
-	return reflectedArgs
-}
-
-// Get return existing instance of Hub or create it and return
-func Get() MessageHub {
-	instanceMtx.Lock()
-	defer instanceMtx.Unlock()
-
-	if instance == nil {
-		instance = New()
-	}
-	return instance
-}
-
-// New create and return new instance of Hub
-func New() MessageHub {
-	h := &hub{channels: make(channelsMap)}
-	h.pendingCond = sync.NewCond(&h.pendingMtx)
-	h.SetConfig(appmod.NewConfig(`Hub`, `v1.0.0`))
-	return h
-}
-
-// Sub subscribe listeners
-func Sub(topicName string, fn interface{}) error {
-	return Get().Subscribe(topic(topicName), fn)
-}
-
-// Event dispatch event
-func Event(topicName string, args ...interface{}) {
-	Get().Publish(topic(topicName), args...)
-}
-
-// Reset instance
-func Reset() MessageHub {
-	_ = Get().Destroy()
-
-	instanceMtx.Lock()
-	instance = nil
-	instanceMtx.Unlock()
-
-	return Get()
 }
