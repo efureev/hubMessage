@@ -1,201 +1,317 @@
-# hubMessage
+# msghub
 
-[![Test](https://github.com/efureev/hubMessage/actions/workflows/test.yml/badge.svg)](https://github.com/efureev/hubMessage/actions/workflows/test.yml)
-[![Codacy Badge](https://api.codacy.com/project/badge/Grade/0cdced379f3e41d39732a720263c8393)](https://app.codacy.com/app/efureev/hubMessage?utm_source=github.com&utm_medium=referral&utm_content=efureev/hubMessage&utm_campaign=Badge_Grade_Dashboard)
-[![Maintainability](https://api.codeclimate.com/v1/badges/82d6074b251f785f8c23/maintainability)](https://codeclimate.com/github/efureev/hubMessage/maintainability)
-[![Test Coverage](https://api.codeclimate.com/v1/badges/82d6074b251f785f8c23/test_coverage)](https://codeclimate.com/github/efureev/hubMessage/test_coverage)
-[![codecov](https://codecov.io/gh/efureev/hubMessage/branch/master/graph/badge.svg)](https://codecov.io/gh/efureev/hubMessage)
-[![Go Report Card](https://goreportcard.com/badge/github.com/efureev/hubMessage)](https://goreportcard.com/report/github.com/efureev/hubMessage)
+[![Test](https://github.com/efureev/msghub/actions/workflows/test.yml/badge.svg)](https://github.com/efureev/msghub/actions/workflows/test.yml)
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/0cdced379f3e41d39732a720263c8393)](https://app.codacy.com/app/efureev/msghub?utm_source=github.com&utm_medium=referral&utm_content=efureev/msghub&utm_campaign=Badge_Grade_Dashboard)
+[![Maintainability](https://api.codeclimate.com/v1/badges/82d6074b251f785f8c23/maintainability)](https://codeclimate.com/github/efureev/msghub/maintainability)
+[![Test Coverage](https://api.codeclimate.com/v1/badges/82d6074b251f785f8c23/test_coverage)](https://codeclimate.com/github/efureev/msghub/test_coverage)
+[![codecov](https://codecov.io/gh/efureev/msghub/branch/master/graph/badge.svg)](https://codecov.io/gh/efureev/msghub)
+[![Go Report Card](https://goreportcard.com/badge/github.com/efureev/msghub)](https://goreportcard.com/report/github.com/efureev/msghub)
 
-`hubMessage` is a lightweight in-process **publish/subscribe (event bus)** library for Go.
+A typed, asynchronous, in-process event bus for Go: named topics, per-subscriber FIFO queues,
+explicit backpressure, zero dependencies.
 
-It lets different parts of an application communicate through named **topics** without
-direct dependencies between them: producers `Publish` messages to a topic, and any number
-of subscribers registered via `Subscribe` receive them asynchronously.
+Events travel on topics that are ordinary values, carrying both a name and a payload type:
+
+```go
+var UserCreated = msghub.NewTopic[User]("user.created")
+```
+
+The name lets a program address a stream it computes at run time — per tenant, per shard, per
+job. The type makes the payload checked at compile time, so a handler can never be invoked
+with arguments it does not accept.
 
 ### Features
 
-- Simple publish/subscribe API built around named topics.
-- Handlers are plain functions with arbitrary signatures — arguments passed to `Publish`
-  are delivered to the subscriber via reflection.
-- Each subscriber runs in its own goroutine; publishing is non-blocking for the producer.
-- `Wait()` lets you block until all in-flight messages have been delivered.
-- A package-level singleton (`Get`, `Sub`, `Event`, `Reset`) for app-wide event bus usage.
-- Integrates with [`appmod`](https://github.com/efureev/appmod) as an application module
-  (lifecycle hooks like `BeforeStart`, `Init`, `Destroy`).
+- **Typed topics.** No `interface{}`, no reflection on the hot path, no signature mismatches.
+- **Asynchronous by default.** Each subscriber owns a bounded queue and a goroutine, so a slow
+  handler delays only itself. Events reach one subscriber in publication order.
+- **Synchronous when it matters.** `Synchronous()` runs the handler inline and returns its
+  error to the publisher.
+- **Explicit backpressure.** A full queue blocks, drops the newest, evicts the oldest or
+  fails — your choice, per hub or per subscription.
+- **Failures are visible.** A handler that returns an error or panics is reported to an error
+  handler, logged, and counted. Nothing is swallowed.
+- **Context everywhere.** `Publish`, `Drain` and `Close` all take one, so a stuck handler
+  surfaces as a deadline rather than a hang.
+- **Handle-based unsubscribe.** `Subscribe` returns a handle. Two subscriptions of the same
+  function — or of a method value from two different receivers — are independent.
+- **Zero allocations per publish.** Payloads travel in a typed channel, topic keys are
+  computed once, and reflection never runs on the hot path. See [Performance](#performance).
 
 ### Requirements
 
-- Go 1.24+
+- Go 1.25+
 
 ### Install
 
 ```bash
-go get -u github.com/efureev/hubMessage/v2
+go get -u github.com/efureev/msghub/v3
 ```
 
-> The module path is `github.com/efureev/hubMessage/v2`, the package name is `hub`.
+> The repository, the module and the package all carry the same name: import
+> `github.com/efureev/msghub/v3` and call it `msghub`. No alias needed.
 
-### API overview
+## Quick start
 
-| Function / Method                                  | Description                                                        |
-|----------------------------------------------------|--------------------------------------------------------------------|
-| `hub.New() MessageHub`                             | Create a new, independent hub instance.                            |
-| `hub.Get() MessageHub`                             | Return the shared (singleton) hub, creating it on first call.      |
-| `hub.Reset() MessageHub`                           | Destroy the shared hub and create a fresh one.                     |
-| `hub.Sub(topic string, fn interface{}) error`      | Subscribe `fn` to a topic on the shared hub.                       |
-| `hub.Event(topic string, args ...interface{})`     | Publish a message to a topic on the shared hub.                    |
-| `(h) Subscribe(topic, fn) error`                   | Register a handler function for a topic.                           |
-| `(h) Unsubscribe(topic, fn) error`                 | Remove a previously registered handler.                            |
-| `(h) Publish(topic, args...)`                      | Deliver `args` to every handler subscribed to the topic.           |
-| `(h) Topics() []topic`                             | List all topics that currently have subscribers.                   |
-| `(h) Topic(topic) ([]*handler, error)`             | Return the handlers registered for a topic.                        |
-| `(h) Close(topic)`                                 | Unsubscribe all handlers from a topic.                             |
-| `(h) Wait()`                                       | Block until all published messages have been processed.            |
+```go
+package main
 
-> Handler signatures must match the arguments passed to `Publish`/`Event`; a mismatch
-> will panic at delivery time (reflection `Call`).
+import (
+	"context"
+	"fmt"
+
+	"github.com/efureev/msghub/v3"
+)
+
+type OrderPlaced struct {
+	ID    string
+	Total int
+}
+
+var OrdersPlaced = msghub.NewTopic[OrderPlaced]("orders.placed")
+
+func main() {
+	ctx := context.Background()
+
+	h := msghub.New()
+	defer func() { _ = h.Close(ctx) }()
+
+	sub, err := msghub.Subscribe(h, OrdersPlaced, func(_ context.Context, ev OrderPlaced) error {
+		fmt.Printf("order %s for %d\n", ev.ID, ev.Total)
+
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer sub.Close()
+
+	if err := msghub.Publish(ctx, h, OrdersPlaced, OrderPlaced{ID: "A-1", Total: 250}); err != nil {
+		panic(err)
+	}
+
+	// Wait for the queued event to be handled before the program exits.
+	if err := h.Drain(ctx); err != nil {
+		panic(err)
+	}
+}
+```
+
+`Publish` and `Subscribe` are package functions rather than methods because Go has no generic
+methods: a type parameter cannot appear on a method. The hub is the first argument instead.
+
+## API overview
+
+| Function / Method                                              | Description                                                         |
+|----------------------------------------------------------------|---------------------------------------------------------------------|
+| `msghub.NewTopic[T](name string) Topic[T]`                     | Build a topic keyed by name **and** payload type.                   |
+| `msghub.TypeTopic[T]() Topic[T]`                               | Build a topic keyed by the payload type alone.                      |
+| `(t Topic[T]) Name() string`                                   | The topic name; empty for a `TypeTopic`.                            |
+| `(t Topic[T]) String() string`                                 | `name[type]`, or the bare type when unnamed.                        |
+| `msghub.New(opts ...Option) *Hub`                              | Create a hub.                                                       |
+| `msghub.Subscribe[T](h, t, fn, opts...) (Subscription, error)` | Register a handler and get a handle that removes it.                |
+| `msghub.Publish[T](ctx, h, t, ev) error`                       | Deliver `ev` to every subscriber of the topic.                      |
+| `(h *Hub) Drain(ctx) error`                                    | Block until every accepted event has been handled.                  |
+| `(h *Hub) Close(ctx) error`                                    | Stop every subscriber goroutine and reject further use. Idempotent. |
+| `(h *Hub) Topics() []string`                                   | Sorted identifiers of topics that currently have subscribers.       |
+| `(h *Hub) Snapshot() Stats`                                    | Published / delivered / dropped / panicked / failed counters.       |
+| `(s Subscription) Close()`                                     | Remove the handler. Idempotent, safe from inside the handler.       |
+| `(s Subscription) Topic() string`                              | The topic this subscription listens on.                             |
+
+### Hub options
+
+| Option                              | Description                                                          |
+|-------------------------------------|----------------------------------------------------------------------|
+| `WithQueueSize(n int)`              | Default per-subscriber queue depth. Default `64`; `0` is a rendezvous.|
+| `WithOverflow(p Overflow)`          | Default policy for a full queue. Default `Block`.                     |
+| `WithLogger(l *slog.Logger)`        | Logger for handler failures. Default `slog.Default()`; `nil` disables.|
+| `WithErrorHandler(fn)`              | Callback for every handler error and recovered panic.                 |
+
+### Subscription options
+
+| Option                        | Description                                                        |
+|-------------------------------|--------------------------------------------------------------------|
+| `WithSubQueueSize(n int)`     | Override the queue depth for this subscription.                    |
+| `WithSubOverflow(p Overflow)` | Override the full-queue policy for this subscription.              |
+| `Synchronous()`               | Run the handler inline in `Publish` and return its error.          |
+
+## Delivery modes
+
+A subscriber is asynchronous unless you say otherwise.
+
+**Asynchronous** — the handler runs on its own goroutine, fed by a bounded queue. `Publish`
+hands the event over and returns. Errors do not travel back to the publisher; they go to the
+error handler, the logger and the counters. Events reach *this* subscriber in publication
+order; the relative order across subscribers is unspecified.
+
+**Synchronous** (`Synchronous()`) — the handler runs inside `Publish`, and its error is joined
+into `Publish`'s return value. Use it when the publisher cannot proceed until the handler has:
+a validation step, a write the next statement depends on. The cost is the publisher's time,
+and `WithQueueSize`/`Overflow` no longer apply — there is no queue to fill.
+
+The two mix freely on one topic.
+
+## Backpressure
+
+Queues are bounded, so a subscriber that cannot keep up has to be dealt with rather than
+silently absorbed. There is no policy that is right for every stream, so the hub asks:
+
+| `Overflow`   | When the queue is full                        | Use for                                        |
+|--------------|-----------------------------------------------|------------------------------------------------|
+| `Block`      | Wait for room, or for the publish context.    | Default. Nothing may be lost.                  |
+| `DropNewest` | Discard the event being published.            | A gap beats a delay; no sample is special.     |
+| `DropOldest` | Evict the oldest queued event.                | Only recent events are useful: metrics, state. |
+| `Fail`       | Return `ErrQueueFull`, deliver nothing.       | The caller decides what to do.                 |
+
+```go
+h := msghub.New(msghub.WithQueueSize(1024), msghub.WithOverflow(msghub.DropOldest))
+
+// ...but this one must not lose anything, however slow it gets.
+sub, err := msghub.Subscribe(h, Audit, writeAuditLog,
+	msghub.WithSubOverflow(msghub.Block), msghub.WithSubQueueSize(64))
+```
+
+## Failure handling
+
+A handler that returns an error or panics is never silently dropped:
+
+```go
+h := msghub.New(msghub.WithErrorHandler(func(ctx context.Context, topic string, err error) {
+	metrics.HandlerFailures.WithLabelValues(topic).Inc()
+
+	var pe *msghub.PanicError
+	if errors.As(err, &pe) {
+		log.Printf("%s panicked with %#v\n%s", pe.Topic, pe.Value, pe.Stack)
+	}
+}))
+```
+
+A panic is recovered and converted into a `*msghub.PanicError` carrying the recovered value and
+the stack captured at the point of recovery — the only record of where it came from, since the
+goroutine that produced it does not survive. If the panic value is itself an `error`,
+`errors.Is` and `errors.As` reach through.
+
+`Hub.Snapshot()` reports `Published`, `Delivered`, `Dropped`, `Panicked` and `Failed`.
+
+## Shutdown
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+if err := h.Drain(ctx); err != nil {   // let queued events finish
+	log.Printf("drain: %v", err)
+}
+if err := h.Close(ctx); err != nil {   // stop the goroutines
+	log.Printf("close: %v", err)
+}
+```
+
+`Drain` reports a moment at which nothing was outstanding, not a promise that nothing will be
+published afterwards — drain once the publishers have stopped. `Close` abandons whatever is
+still queued, so drain first when those events matter.
+
+## Application lifecycle
+
+The bus knows nothing about application lifecycles, and does not depend on
+[`appmod`](https://github.com/efureev/appmod). To tie a hub and its subscriptions to appmod
+modules — a module owning the hub, subscriptions removed automatically on `Destroy` — use the
+adapter module `github.com/efureev/appmod/adapters/hubmod`.
 
 ## Examples
-### Basic
-```go
-import (
-	"github.com/efureev/hubMessage/v2"
-)
 
-func main() {
-	h := hub.New()
-    defer h.Wait()
-	
-    h.Subscribe("console", func(msg string) {
-        println(msg)
-    })
-    
-	//..
-    
-    h.Publish("console", `Hi`)
-    hub.Event("console", `test msg`)
-	//...
-}
+Runnable programs live in [`examples/`](examples). They show the bus behaving *over time* —
+queues filling, events being dropped, counters moving — which the `Example*` functions in
+`example_test.go` cannot, because a godoc example has to print one deterministic line.
+
+```sh
+go run ./examples/basic         # topics, fan-out, Drain → Close, Topics/Snapshot
+go run ./examples/delivery      # async vs Synchronous: timing, errors, ordering
+go run ./examples/backpressure  # the four Overflow policies under the same overload
+go run ./examples/failures      # errors, panics, PanicError with its stack, counters
 ```
 
-```go
-package main
+Their output is byte-for-byte identical on every run: the examples synchronize explicitly
+instead of sleeping, so the counts they print are exact rather than typical.
 
-import (
-	"github.com/efureev/appmod"
-	"github.com/efureev/hubMessage/v2"
-	"log"
-)
+## Performance
 
-func main() {
-    hub.Get().BeforeStart(func(_ appmod.AppModule) error {
-        hub.Sub(`app.console`, func(msg string) {
-            log.Println(msg)
-        })
-    
-        return nil
-    })
-    defer hub.Get().Wait() // if you want wait for finish message sending
-    hub.Get().Init()
-    
-    // ... send message to hub from any places
-    
-    hub.Event(`app.console`, `Config loaded`)
-    hub.Event(`app.console`, `Test message`)
-}
+Measured on an Apple M5 Pro (`darwin/arm64`, Go 1.26), `-benchtime 300000x`. Reproduce with:
+
+```sh
+go test -run XXX -bench . -benchtime 300000x .
 ```
 
-### Error handling
-```go
-package main
+| Benchmark                           |  ns/op | B/op | allocs/op |
+|-------------------------------------|-------:|-----:|----------:|
+| `Publish` synchronous, 1 subscriber |    ~20 |    0 |         0 |
+| `Publish` async, 1 subscriber       |   ~480 |    0 |         0 |
+| `Publish` async, parallel producers |   ~420 |    0 |         0 |
+| `Publish` with no subscribers       |    ~10 |    0 |         0 |
+| `Publish` synchronous, fan-out to 8 |    ~70 |   64 |         1 |
+| `Subscribe` + `Close`               |   ~190 |  304 |         6 |
 
-import (
-	"errors"
-	"github.com/efureev/hubMessage/v2"
-	"log"
-)
+The `ns/op` column is approximate: on a laptop it moves 10–20% between runs, so a figure with
+decimals would promise a precision that is not there. The allocation columns do not move at
+all, and they are the part worth relying on.
 
-func main() {
-	h := hub.New()
-    out := make(chan error)
-    fatal := make(chan error)
-    defer h.Wait()
-    defer close(out)
-    defer close(fatal)
-    
-    go func() {
-    	for {
-            select{
-            case e:= <-out:
-                println(e)
-            case e:= <-fatal:
-                log.Fatal(e)
-            }
-    	}
-    }()
-    
-    h.Subscribe("errors", func(err error) {
-        out <- err
-    })
-    
-    h.Subscribe("errors.fatal", func(err error) {
-        fatal <- err
-    })
-    
-    h.Subscribe("errors.toChannel", func(err error, ch chan <- error) {
-        ch <- err
-    })
+**Why there are no allocations.** A payload travels in a `chan T`, not a `chan any`, so
+nothing is boxed on its way to a handler. Topic keys are computed once, in `NewTopic`:
+`reflect.TypeFor[T]()` never runs on the hot path, which is a map lookup on a precomputed key
+plus one type assertion. Publishing where nobody listens costs a lookup and nothing else, so a
+producer does not have to know whether anything is subscribed.
 
-    
-    h.Publish("errors", errors.New("I do throw error"))
-    h.Publish("errors.fatal", errors.New("I do throw error"))
-    h.Publish("errors.toChannel", errors.New("I do throw error"), fatal)
-    h.Publish("errors.toChannel", errors.New("I do throw error"), out)
-}
-```
+**What the numbers are not.** The asynchronous figure is dominated by the channel handoff and
+the scheduler — it is the cost of handing work to another goroutine, not evidence of being
+faster than anything else. No comparison against other libraries is offered here because none
+was measured. The honest comparisons are against raw channels, which you would otherwise write
+by hand, and against this package's own v2, which delivered through reflection at roughly the same
+ns/op but with 2 allocations and 48 bytes on every publish, subscribers or not.
 
+**Where the one allocation comes from.** Fanning out copies the subscriber list before
+delivering, so the lock is not held while a handler runs. For a couple of subscribers that
+slice does not escape and costs nothing; past that it is a single allocation proportional to
+the subscriber count. That is the price of never stalling `Subscribe` and `Close` behind a
+slow handler — and of not deadlocking when a handler subscribes from inside its own callback.
 
-### Event bus
-```go
+### What you get over a channel
 
-import (
-	"auth/internal/models"
-	hub "github.com/efureev/hubMessage/v2"
-)
+Everything below is a property of this package, checkable in `examples/`:
 
-func registerEvents(events map[string]interface{}) {
-	for event, handle := range events {
-		err := hub.Sub(event, handle)
-		if err != nil {
-			panic(err)
-		}
-	}
+- **Backpressure is a decision, not an accident.** `Block`, `DropNewest`, `DropOldest` and
+  `Fail`, per hub or per subscription. A bare channel gives you the first one and no way to
+  say otherwise.
+- **Both delivery modes on one topic.** A synchronous validator that can veto and an
+  asynchronous indexer that runs off the hot path, subscribed to the same stream.
+- **Failures are visible.** Handler errors and recovered panics reach an error handler, a
+  logger and five counters. A `*PanicError` carries the value and the stack captured at
+  recovery.
+- **Fan-out without bookkeeping.** One publication, N independent queues, FIFO per subscriber.
+- **Unsubscribe by handle.** Two subscriptions of the same function — or of a method value
+  from two different receivers — are independent.
+- **Shutdown that terminates.** `Drain` and `Close` take a context, so a stuck handler is a
+  deadline rather than a hang.
+- **Zero dependencies.** `go mod graph` is one line.
 
-}
+Verified by a suite that runs under `-race` at 99.2% statement coverage, with the concurrency
+tests written on `testing/synctest` so they are deterministic rather than timing-dependent.
 
-func eventList() map[string]interface{} {
-	return map[string]interface{}{
-		`user.registered`: func(user *models.User) {
-			println(`user registered: ` + user.Id)
-		},
-		`user.activated`: func(user *models.User) {
-			println(`user activated: ` + user.Id)
-		},
-		`test`: func(_ string) {
-            out <- `test`
-        },
-        `empty`: func() {
-            out <- `empty`
-        },
-	}
-}
+## Package layout
 
-// ... in other code:
-hub.Event(`user.registered`, &models.User{})
-hub.Event(`empty`)
+The package is flat; every file sits in the repository root.
 
-```
+| File               | Responsibility                                                  |
+|--------------------|------------------------------------------------------------------|
+| `doc.go`           | Package overview and this file map.                              |
+| `topic.go`         | `Topic[T]`, `NewTopic`, `TypeTopic` and the internal topic key.  |
+| `msghub.go`           | `Hub`, `New`, `Topics`, `Drain`, `Close`, in-flight accounting.  |
+| `subscription.go`  | `Subscription`, `Subscribe` and the per-subscriber worker.       |
+| `publish.go`       | `Publish`, the `Overflow` policies and handler invocation.       |
+| `options.go`       | `Option`, `SubOption` and the `With*` constructors.              |
+| `errors.go`        | The sentinel errors and `PanicError`.                            |
+| `stats.go`         | The delivery counters behind `Hub.Snapshot`.                     |
+
+Runnable demos live alongside it in [`examples/`](examples), one `main` package per directory.
 
 ## Development
 
@@ -219,4 +335,15 @@ Tooling:
 - `go` service — `golang:1.25` image, used for tests/format.
 - `golint` service — `golangci/golangci-lint:v2.7-alpine`, configured via `.golangci.yml`.
 
-The same checks run in CI via GitHub Actions (`.github/workflows/test.yml`).
+The same checks run in CI via GitHub Actions (`.github/workflows/test.yml`), which also runs
+`go build`, `go vet` and a secret scan that `make test` does not.
+
+## Versions
+
+`v3` is a rewrite with no migration path from `v2`. The two differ in every signature: `v2`
+delivered through reflection to handlers of arbitrary shape, keyed topics by an unexported
+string type, and reported nothing when delivery failed. `AUDIT-v3.md` records the defects that
+motivated the rewrite and the reasoning behind the current design.
+
+`v2` is frozen. It remains resolvable at `github.com/efureev/hubMessage/v2` and will not
+receive further development.
