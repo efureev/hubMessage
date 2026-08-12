@@ -35,6 +35,8 @@ with arguments it does not accept.
   surfaces as a deadline rather than a hang.
 - **Handle-based unsubscribe.** `Subscribe` returns a handle. Two subscriptions of the same
   function — or of a method value from two different receivers — are independent.
+- **Zero allocations per publish.** Payloads travel in a typed channel, topic keys are
+  computed once, and reflection never runs on the hot path. See [Performance](#performance).
 
 ### Requirements
 
@@ -216,6 +218,84 @@ The bus knows nothing about application lifecycles, and does not depend on
 modules — a module owning the hub, subscriptions removed automatically on `Destroy` — use the
 adapter module `github.com/efureev/appmod/adapters/hubmod`.
 
+## Examples
+
+Runnable programs live in [`examples/`](examples). They show the bus behaving *over time* —
+queues filling, events being dropped, counters moving — which the `Example*` functions in
+`example_test.go` cannot, because a godoc example has to print one deterministic line.
+
+```sh
+go run ./examples/basic         # topics, fan-out, Drain → Close, Topics/Snapshot
+go run ./examples/delivery      # async vs Synchronous: timing, errors, ordering
+go run ./examples/backpressure  # the four Overflow policies under the same overload
+go run ./examples/failures      # errors, panics, PanicError with its stack, counters
+```
+
+Their output is byte-for-byte identical on every run: the examples synchronize explicitly
+instead of sleeping, so the counts they print are exact rather than typical.
+
+## Performance
+
+Measured on an Apple M5 Pro (`darwin/arm64`, Go 1.26), `-benchtime 300000x`. Reproduce with:
+
+```sh
+go test -run XXX -bench . -benchtime 300000x .
+```
+
+| Benchmark                           |  ns/op | B/op | allocs/op |
+|-------------------------------------|-------:|-----:|----------:|
+| `Publish` synchronous, 1 subscriber |    ~20 |    0 |         0 |
+| `Publish` async, 1 subscriber       |   ~480 |    0 |         0 |
+| `Publish` async, parallel producers |   ~420 |    0 |         0 |
+| `Publish` with no subscribers       |    ~10 |    0 |         0 |
+| `Publish` synchronous, fan-out to 8 |    ~70 |   64 |         1 |
+| `Subscribe` + `Close`               |   ~190 |  304 |         6 |
+
+The `ns/op` column is approximate: on a laptop it moves 10–20% between runs, so a figure with
+decimals would promise a precision that is not there. The allocation columns do not move at
+all, and they are the part worth relying on.
+
+**Why there are no allocations.** A payload travels in a `chan T`, not a `chan any`, so
+nothing is boxed on its way to a handler. Topic keys are computed once, in `NewTopic`:
+`reflect.TypeFor[T]()` never runs on the hot path, which is a map lookup on a precomputed key
+plus one type assertion. Publishing where nobody listens costs a lookup and nothing else, so a
+producer does not have to know whether anything is subscribed.
+
+**What the numbers are not.** The asynchronous figure is dominated by the channel handoff and
+the scheduler — it is the cost of handing work to another goroutine, not evidence of being
+faster than anything else. No comparison against other libraries is offered here because none
+was measured. The honest comparisons are against raw channels, which you would otherwise write
+by hand, and against this package's own v2, which delivered through reflection at roughly the same
+ns/op but with 2 allocations and 48 bytes on every publish, subscribers or not.
+
+**Where the one allocation comes from.** Fanning out copies the subscriber list before
+delivering, so the lock is not held while a handler runs. For a couple of subscribers that
+slice does not escape and costs nothing; past that it is a single allocation proportional to
+the subscriber count. That is the price of never stalling `Subscribe` and `Close` behind a
+slow handler — and of not deadlocking when a handler subscribes from inside its own callback.
+
+### What you get over a channel
+
+Everything below is a property of this package, checkable in `examples/`:
+
+- **Backpressure is a decision, not an accident.** `Block`, `DropNewest`, `DropOldest` and
+  `Fail`, per hub or per subscription. A bare channel gives you the first one and no way to
+  say otherwise.
+- **Both delivery modes on one topic.** A synchronous validator that can veto and an
+  asynchronous indexer that runs off the hot path, subscribed to the same stream.
+- **Failures are visible.** Handler errors and recovered panics reach an error handler, a
+  logger and five counters. A `*PanicError` carries the value and the stack captured at
+  recovery.
+- **Fan-out without bookkeeping.** One publication, N independent queues, FIFO per subscriber.
+- **Unsubscribe by handle.** Two subscriptions of the same function — or of a method value
+  from two different receivers — are independent.
+- **Shutdown that terminates.** `Drain` and `Close` take a context, so a stuck handler is a
+  deadline rather than a hang.
+- **Zero dependencies.** `go mod graph` is one line.
+
+Verified by a suite that runs under `-race` at 99.2% statement coverage, with the concurrency
+tests written on `testing/synctest` so they are deterministic rather than timing-dependent.
+
 ## Package layout
 
 The package is flat; every file sits in the repository root.
@@ -230,6 +310,8 @@ The package is flat; every file sits in the repository root.
 | `options.go`       | `Option`, `SubOption` and the `With*` constructors.              |
 | `errors.go`        | The sentinel errors and `PanicError`.                            |
 | `stats.go`         | The delivery counters behind `Hub.Snapshot`.                     |
+
+Runnable demos live alongside it in [`examples/`](examples), one `main` package per directory.
 
 ## Development
 

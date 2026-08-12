@@ -89,6 +89,16 @@ reasoning behind the current design.
   subscription drops the topic entirely; v2 kept every name it had ever seen, which leaked
   memory for run-time topic names.
 
+- **Runnable examples** in `examples/`: `basic`, `delivery`, `backpressure` and `failures`.
+  They show the bus behaving over time — queues filling, events dropped, counters moving —
+  which a godoc example cannot, because its output has to be a single deterministic line.
+  Theirs is deterministic too, by explicit synchronization rather than by sleeping, so the
+  counts they print are exact.
+
+- **A `Performance` section** in `Readme.md` with measured benchmarks and the design
+  reasons behind them: payloads travel in a typed channel, topic keys are computed once,
+  and reflection never runs on the hot path.
+
 ### Fixed
 
 Each of these is covered by a regression test in `msghub_test.go`:

@@ -52,6 +52,11 @@
 //	errors.go       — the sentinel errors.
 //	stats.go        — the delivery counters behind Hub.Snapshot.
 //
+// Runnable demos live in examples/, one main package per directory: basic,
+// delivery, backpressure and failures. They show the bus behaving over time —
+// queues filling, events dropped, counters moving — which the Example
+// functions here cannot.
+//
 // The bus knows nothing about application lifecycles. To tie a hub and its
 // subscriptions to github.com/efureev/appmod modules, use the adapter module
 // github.com/efureev/appmod/adapters/hubmod.
